@@ -321,7 +321,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
     },
     # Variant-Variant relationships (Linkage Disequilibrium)
     'variants_variants': {
-        'path': '/api/variants/variants',
+        'path': '/api/variants/variant-ld',
         'from_type': 'variant',
         'to_type': 'variant',
         'from_params': ['variant_id', 'spdi', 'hgvs', 'rsid', 'ca_id', 'chr', 'position'],
