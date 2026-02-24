@@ -115,7 +115,7 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
         # Query the API
         async with IGVFCatalogClient() as client:
             ld_results = await client.find_associations(
-                endpoint='/api/variants/variants', params=params, verbose=verbose
+                endpoint='/api/variants/variant-ld', params=params, verbose=verbose
             )
 
         # Process results

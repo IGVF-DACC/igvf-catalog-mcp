@@ -103,6 +103,11 @@ class TestGetEdgeConfig:
         assert 'cV2F' in config['methods']
         assert 'SGE' in config['methods']
 
+    def test_variants_variants_has_correct_path(self):
+        """Test variants_variants endpoint uses the correct LD API path."""
+        config = get_edge_config('variants_variants')
+        assert config['path'] == '/api/variants/variant-ld'
+
 
 class TestRelationshipTypeMapping:
     """Test relationship type mapping functionality."""
