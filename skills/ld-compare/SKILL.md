@@ -6,6 +6,8 @@ argument-hint: <variant_id>
 
 # Cross-Population LD Comparison
 
+This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `get_entity`, `search_region`, `find_associations`, `find_ld`, `resolve_id`, and `list_sources`. The server must be configured and running.
+
 Compare LD structure across all five superpopulations for variant `$ARGUMENTS`.
 
 ## Workflow

@@ -6,6 +6,8 @@ argument-hint: <gene>
 
 # Comprehensive Gene Profile
 
+This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `get_entity`, `search_region`, `find_associations`, `find_ld`, `resolve_id`, and `list_sources`. The server must be configured and running.
+
 Build a 360-degree dossier for gene `$ARGUMENTS`.
 
 ## Workflow

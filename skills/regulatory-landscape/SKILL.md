@@ -6,6 +6,8 @@ argument-hint: <gene> [tissue]
 
 # Regulatory Architecture Analysis
 
+This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `get_entity`, `search_region`, `find_associations`, `find_ld`, `resolve_id`, and `list_sources`. The server must be configured and running.
+
 Map the regulatory landscape of `$ARGUMENTS`.
 
 Parse the arguments: the first token is the gene, and any subsequent token is an optional tissue/cell type filter.
