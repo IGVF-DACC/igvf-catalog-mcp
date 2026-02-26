@@ -1,5 +1,5 @@
 ---
-name: variant-report
+name: igvf-catalog-variant-report
 description: Interpret a genetic variant — disease associations, eQTLs, pharmacogenomics, coding impact, and LD. Use when someone asks "what does this variant do?", "tell me about rs...", or wants to understand a variant's biological significance.
 argument-hint: <variant_id>
 ---

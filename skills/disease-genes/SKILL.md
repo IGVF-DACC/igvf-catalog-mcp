@@ -1,5 +1,5 @@
 ---
-name: disease-genes
+name: igvf-catalog-disease-genes
 description: Map the genetic architecture of a disease — causal genes, shared pathways, interaction networks, and therapeutic targets. Use when someone asks "what genes cause X?", "genetic basis of...", or wants to understand the gene network underlying a disease.
 argument-hint: <disease_name_or_id>
 ---

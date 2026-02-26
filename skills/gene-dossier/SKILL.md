@@ -1,5 +1,5 @@
 ---
-name: gene-dossier
+name: igvf-catalog-gene-dossier
 description: Comprehensive gene profile — disease links, regulatory elements, interactions, pathways, and isoforms. Use when someone asks "tell me about gene X", "what do we know about BRCA1?", or wants a complete gene overview.
 argument-hint: <gene>
 ---
