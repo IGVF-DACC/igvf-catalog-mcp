@@ -79,6 +79,30 @@ Discover available data sources.
 {"category": "gene_expression"}
 ```
 
+## Skills
+
+Skills are pre-packaged Claude Code workflows that combine multiple tools into guided analyses. Invoke them directly with `/skill-name` in a Claude Code session (e.g., `/variant-report rs429358`). The agent can independently invoke the skills when they are relevant.
+
+To enable skills, copy the desired skill directories from `skills/` into `~/.claude/skills/` (or wherever you store your Claude Code skills).
+
+### `/variant-report`
+Interpret a genetic variant's biological significance — disease associations, eQTLs, pharmacogenomics, coding impact, and linkage disequilibrium. Produces a structured summary of what a variant does and which conditions it's linked to.
+
+### `/gene-dossier`
+Build a comprehensive profile of a gene — disease links, regulatory elements, protein interactions, pathways, and transcript isoforms. Useful when you want a full picture of a gene's biology and clinical relevance.
+
+### `/dissect-locus`
+Identify the causal gene(s) at a GWAS locus by integrating LD proxies, eQTL evidence, and overlapping regulatory elements. Takes a GWAS lead variant and returns a ranked list of candidate genes with supporting evidence.
+
+### `/regulatory-landscape`
+Map how a gene is regulated — cis-regulatory elements, eQTL variants driving its expression, and tissue-specific patterns. Highlights which regulatory variants converge on disease associations.
+
+### `/disease-genes`
+Map the genetic architecture of a disease — causal genes, shared biological pathways, protein interaction networks, and potential therapeutic targets. Useful for understanding the gene network underlying a trait or condition.
+
+### `/ld-compare`
+Compare linkage disequilibrium structure for a variant across ancestries (EUR, AFR, EAS, SAS, AMR). Useful for assessing PRS portability, identifying ancestry-specific tag SNPs, and understanding population differences in LD.
+
 ## Development
 
 Run tests:
