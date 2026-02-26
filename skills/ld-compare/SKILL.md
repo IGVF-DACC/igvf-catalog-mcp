@@ -6,23 +6,23 @@ argument-hint: <variant_id>
 
 # Cross-Population LD Comparison
 
-This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `igvf-catalog-get_entity`, `igvf-catalog-search_region`, `igvf-catalog-find_associations`, `igvf-catalog-find_ld`, `igvf-catalog-resolve_id`, and `igvf-catalog-list_sources`. The server must be configured and running.
+This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `igvf_catalog_get_entity`, `igvf_catalog_search_region`, `igvf_catalog_find_associations`, `igvf_catalog_find_ld`, `igvf_catalog_resolve_id`, and `igvf_catalog_list_sources`. The server must be configured and running.
 
 Compare LD structure across all five superpopulations for variant `$ARGUMENTS`.
 
 ## Workflow
 
 ### Step 1: Resolve Variant
-Call `igvf-catalog-resolve_id(id=$ARGUMENTS)` to normalize the identifier.
+Call `igvf_catalog_resolve_id(id=$ARGUMENTS)` to normalize the identifier.
 
 ### Step 2: Query All Populations (parallel)
 Run all five in parallel:
 
-- `igvf-catalog-find_ld(variant_id, ancestry="EUR", r2_threshold=0.5, limit=100)`
-- `igvf-catalog-find_ld(variant_id, ancestry="AFR", r2_threshold=0.5, limit=100)`
-- `igvf-catalog-find_ld(variant_id, ancestry="EAS", r2_threshold=0.5, limit=100)`
-- `igvf-catalog-find_ld(variant_id, ancestry="SAS", r2_threshold=0.5, limit=100)`
-- `igvf-catalog-find_ld(variant_id, ancestry="AMR", r2_threshold=0.5, limit=100)`
+- `igvf_catalog_find_ld(variant_id, ancestry="EUR", r2_threshold=0.5, limit=100)`
+- `igvf_catalog_find_ld(variant_id, ancestry="AFR", r2_threshold=0.5, limit=100)`
+- `igvf_catalog_find_ld(variant_id, ancestry="EAS", r2_threshold=0.5, limit=100)`
+- `igvf_catalog_find_ld(variant_id, ancestry="SAS", r2_threshold=0.5, limit=100)`
+- `igvf_catalog_find_ld(variant_id, ancestry="AMR", r2_threshold=0.5, limit=100)`
 
 ### Step 3: Analyze
 

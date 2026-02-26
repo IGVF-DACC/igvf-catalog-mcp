@@ -19,15 +19,15 @@ ALL_TOOLS = [
 
 def test_all_tool_names_have_prefix():
     for tool in ALL_TOOLS:
-        assert tool.name.startswith('igvf-catalog-'), (
-            f"Tool '{tool.name}' is missing the 'igvf-catalog-' prefix"
+        assert tool.name.startswith('igvf_catalog_'), (
+            f"Tool '{tool.name}' is missing the 'igvf_catalog_' prefix"
         )
 
 
 def test_exact_tool_names():
-    assert GET_ENTITY_TOOL.name == 'igvf-catalog-get_entity'
-    assert SEARCH_REGION_TOOL.name == 'igvf-catalog-search_region'
-    assert FIND_ASSOCIATIONS_TOOL.name == 'igvf-catalog-find_associations'
-    assert FIND_LD_TOOL.name == 'igvf-catalog-find_ld'
-    assert RESOLVE_ID_TOOL.name == 'igvf-catalog-resolve_id'
-    assert LIST_SOURCES_TOOL.name == 'igvf-catalog-list_sources'
+    assert GET_ENTITY_TOOL.name == 'igvf_catalog_get_entity'
+    assert SEARCH_REGION_TOOL.name == 'igvf_catalog_search_region'
+    assert FIND_ASSOCIATIONS_TOOL.name == 'igvf_catalog_find_associations'
+    assert FIND_LD_TOOL.name == 'igvf_catalog_find_ld'
+    assert RESOLVE_ID_TOOL.name == 'igvf_catalog_resolve_id'
+    assert LIST_SOURCES_TOOL.name == 'igvf_catalog_list_sources'

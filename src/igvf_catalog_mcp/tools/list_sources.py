@@ -11,7 +11,7 @@ from ..services.edge_config import get_sources_by_category, get_edge_config, EDG
 
 # Tool definition
 LIST_SOURCES_TOOL = Tool(
-    name='igvf-catalog-list_sources',
+    name='igvf_catalog_list_sources',
     description=(
         'Discover available data sources, methods, and filter options in the IGVF Catalog. '
         'Helps find valid values for source and method filters in other tools. '
