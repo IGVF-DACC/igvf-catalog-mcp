@@ -1,5 +1,5 @@
 ---
-name: dissect-locus
+name: igvf-catalog-dissect-locus
 description: Identify causal genes at a GWAS locus by integrating LD, eQTLs, and regulatory elements. Use when someone asks "which gene does this GWAS variant affect?", "fine-map this locus", or wants to go from GWAS signal to causal gene.
 argument-hint: <variant_or_region>
 ---

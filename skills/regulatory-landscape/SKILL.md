@@ -1,5 +1,5 @@
 ---
-name: regulatory-landscape
+name: igvf-catalog-regulatory-landscape
 description: Map how a gene is regulated — cis-regulatory elements, eQTL variants, tissue-specific patterns, and regulatory-disease convergence. Use when someone asks "how is this gene regulated?", "what controls expression of X?", or wants tissue-specific regulatory analysis.
 argument-hint: <gene> [tissue]
 ---

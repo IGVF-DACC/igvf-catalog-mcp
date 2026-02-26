@@ -1,5 +1,5 @@
 ---
-name: ld-compare
+name: igvf-catalog-ld-compare
 description: Compare LD structure across ancestries (EUR, AFR, EAS, SAS, AMR) for a variant. Use when someone asks about cross-population LD, PRS portability, ancestry-specific tag SNPs, or population differences in linkage disequilibrium.
 argument-hint: <variant_id>
 ---
