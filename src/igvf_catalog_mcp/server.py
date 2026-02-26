@@ -41,17 +41,17 @@ async def list_tools():
 @app.call_tool()
 async def call_tool(name: str, arguments: dict):
     """Execute a tool by name."""
-    if name == 'get_entity':
+    if name == 'igvf_catalog_get_entity':
         return await get_entity(arguments)
-    elif name == 'search_region':
+    elif name == 'igvf_catalog_search_region':
         return await search_region(arguments)
-    elif name == 'find_associations':
+    elif name == 'igvf_catalog_find_associations':
         return await find_associations(arguments)
-    elif name == 'find_ld':
+    elif name == 'igvf_catalog_find_ld':
         return await find_ld(arguments)
-    elif name == 'resolve_id':
+    elif name == 'igvf_catalog_resolve_id':
         return await resolve_id(arguments)
-    elif name == 'list_sources':
+    elif name == 'igvf_catalog_list_sources':
         return await list_sources(arguments)
     else:
         raise ValueError(f'Unknown tool: {name}')

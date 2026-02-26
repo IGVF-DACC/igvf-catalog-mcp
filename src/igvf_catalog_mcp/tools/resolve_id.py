@@ -12,7 +12,7 @@ from ..services.formatter import format_error
 
 # Tool definition
 RESOLVE_ID_TOOL = Tool(
-    name='resolve_id',
+    name='igvf_catalog_resolve_id',
     description=(
         'Convert between different identifier formats and find all known aliases. '
         'Particularly useful for variants: converts between rsID, SPDI, HGVS, and ClinGen Allele Registry ID. '

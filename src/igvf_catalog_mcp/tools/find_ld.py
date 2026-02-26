@@ -12,7 +12,7 @@ from ..services.formatter import format_error
 
 # Tool definition
 FIND_LD_TOOL = Tool(
-    name='find_ld',
+    name='igvf_catalog_find_ld',
     description=(
         'Find variants in linkage disequilibrium (LD) with a query variant. '
         'LD measures the non-random association of alleles at different loci. '
