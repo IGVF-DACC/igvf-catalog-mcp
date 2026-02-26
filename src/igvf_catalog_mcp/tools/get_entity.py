@@ -11,7 +11,7 @@ from ..services.formatter import add_entity_type, format_error
 
 # Tool definition
 GET_ENTITY_TOOL = Tool(
-    name='get_entity',
+    name='igvf-catalog-get_entity',
     description=(
         'Look up any biological entity by ID with automatic type detection. '
         'Supports genes (BRCA1, ENSG00000139618), variants (rs12345, NC_000017.11:43044295:G:A), '

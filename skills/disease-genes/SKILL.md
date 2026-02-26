@@ -6,7 +6,7 @@ argument-hint: <disease_name_or_id>
 
 # Disease Gene Network
 
-This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `get_entity`, `search_region`, `find_associations`, `find_ld`, `resolve_id`, and `list_sources`. The server must be configured and running.
+This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `igvf-catalog-get_entity`, `igvf-catalog-search_region`, `igvf-catalog-find_associations`, `igvf-catalog-find_ld`, `igvf-catalog-resolve_id`, and `igvf-catalog-list_sources`. The server must be configured and running.
 
 Map the genetic architecture and gene network for `$ARGUMENTS`.
 
@@ -15,20 +15,20 @@ Map the genetic architecture and gene network for `$ARGUMENTS`.
 ### Step 1: Find Disease and Genes
 
 **If disease ID provided** (e.g., Orphanet_586, MONDO_0008199):
-- `get_entity(id=<disease_id>)` for disease details
-- `find_associations(entity_id=<disease_id>, relationship="genetic")` for associated genes
+- `igvf-catalog-get_entity(id=<disease_id>)` for disease details
+- `igvf-catalog-find_associations(entity_id=<disease_id>, relationship="genetic")` for associated genes
 
 **If disease name provided** (e.g., "cystic fibrosis"):
-- `get_entity(id=<disease_name>)` — may resolve to an ID
-- If limited results, try the known primary gene (e.g., CFTR for cystic fibrosis) via `find_associations(entity_id=<gene>, relationship="genetic")` to find the disease ID, then query from disease side.
+- `igvf-catalog-get_entity(id=<disease_name>)` — may resolve to an ID
+- If limited results, try the known primary gene (e.g., CFTR for cystic fibrosis) via `igvf-catalog-find_associations(entity_id=<gene>, relationship="genetic")` to find the disease ID, then query from disease side.
 
-**Fallback:** The gene→disease direction is more reliable than disease→gene. If needed, query known genes with `find_associations(gene, relationship="genetic")` to confirm and discover associations.
+**Fallback:** The gene→disease direction is more reliable than disease→gene. If needed, query known genes with `igvf-catalog-find_associations(gene, relationship="genetic")` to confirm and discover associations.
 
 ### Step 2: Pathway Analysis (parallel)
-For each disease gene (up to 10): `find_associations(entity_id=<gene>, relationship="functional")` → Reactome pathways.
+For each disease gene (up to 10): `igvf-catalog-find_associations(entity_id=<gene>, relationship="functional")` → Reactome pathways.
 
 ### Step 3: Interaction Analysis (parallel)
-For each disease gene (up to 10): `find_associations(entity_id=<gene>, relationship="physical")` → BioGRID genetic + protein-protein interactions.
+For each disease gene (up to 10): `igvf-catalog-find_associations(entity_id=<gene>, relationship="physical")` → BioGRID genetic + protein-protein interactions.
 
 ### Step 4: Convergence Analysis
 

@@ -6,26 +6,26 @@ argument-hint: <gene>
 
 # Comprehensive Gene Profile
 
-This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `get_entity`, `search_region`, `find_associations`, `find_ld`, `resolve_id`, and `list_sources`. The server must be configured and running.
+This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `igvf-catalog-get_entity`, `igvf-catalog-search_region`, `igvf-catalog-find_associations`, `igvf-catalog-find_ld`, `igvf-catalog-resolve_id`, and `igvf-catalog-list_sources`. The server must be configured and running.
 
 Build a 360-degree dossier for gene `$ARGUMENTS`.
 
 ## Workflow
 
 ### Step 1: Get Gene Identity
-Call `get_entity(id=$ARGUMENTS)` to get coordinates, biotype, synonyms, HGNC/Entrez/Ensembl IDs.
+Call `igvf-catalog-get_entity(id=$ARGUMENTS)` to get coordinates, biotype, synonyms, HGNC/Entrez/Ensembl IDs.
 
 ### Step 2: Gather Associations (parallel)
 Run these in parallel:
 
-- `find_associations(entity_id, relationship="genetic")` — Disease associations (Orphanet association types, ClinGen)
-- `find_associations(entity_id, relationship="regulatory")` — eQTL/sQTL variants across tissues
-- `find_associations(entity_id, relationship="physical")` — Genetic interactions (BioGRID) + protein-protein interactions
-- `find_associations(entity_id, relationship="functional")` — Reactome pathway memberships
-- `find_associations(entity_id, relationship="transcription")` — GENCODE transcript isoforms
+- `igvf-catalog-find_associations(entity_id, relationship="genetic")` — Disease associations (Orphanet association types, ClinGen)
+- `igvf-catalog-find_associations(entity_id, relationship="regulatory")` — eQTL/sQTL variants across tissues
+- `igvf-catalog-find_associations(entity_id, relationship="physical")` — Genetic interactions (BioGRID) + protein-protein interactions
+- `igvf-catalog-find_associations(entity_id, relationship="functional")` — Reactome pathway memberships
+- `igvf-catalog-find_associations(entity_id, relationship="transcription")` — GENCODE transcript isoforms
 
 ### Step 3: Regulatory Element Census
-Call `search_region(region=<gene_coordinates>)` to find ENCODE SCREEN cis-regulatory elements overlapping the gene.
+Call `igvf-catalog-search_region(region=<gene_coordinates>)` to find ENCODE SCREEN cis-regulatory elements overlapping the gene.
 
 ### Step 4: Compile Dossier
 

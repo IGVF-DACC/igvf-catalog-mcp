@@ -35,7 +35,7 @@ python -m igvf_catalog_mcp.server
 
 ## Tools
 
-### 1. `get_entity`
+### 1. `igvf-catalog-get_entity`
 Look up any entity by ID with automatic type detection.
 
 ```json
@@ -44,28 +44,35 @@ Look up any entity by ID with automatic type detection.
 {"id": "ENSG00000141510"}
 ```
 
-### 2. `search_region`
+### 2. `igvf-catalog-search_region`
 Find all entities within a genomic region.
 
 ```json
 {"region": "chr17:41000000-42000000"}
 ```
 
-### 3. `find_associations`
+### 3. `igvf-catalog-find_associations`
 Discover relationships between entities.
 
 ```json
 {"entity_id": "TP53", "relationship": "regulatory"}
 ```
 
-### 4. `resolve_id`
+### 4. `igvf-catalog-find_ld`
+Find variants in linkage disequilibrium with a query variant.
+
+```json
+{"variant_id": "rs429358", "ancestry": "EUR", "r2_threshold": 0.8}
+```
+
+### 5. `igvf-catalog-resolve_id`
 Convert between identifier formats.
 
 ```json
 {"id": "rs80357906"}
 ```
 
-### 5. `list_sources`
+### 6. `igvf-catalog-list_sources`
 Discover available data sources.
 
 ```json
@@ -83,7 +90,7 @@ pytest
 ## Architecture
 
 The server consists of:
-- **Tools**: 5 MCP tools for genomics queries
+- **Tools**: 6 MCP tools for genomics queries
 - **Services**: API client, ID parser, region parser
 - **Resources**: Entity schemas and examples
 

@@ -13,7 +13,7 @@ from ..services.formatter import format_error
 
 # Tool definition
 SEARCH_REGION_TOOL = Tool(
-    name='search_region',
+    name='igvf-catalog-search_region',
     description=(
         'Find all biological entities within a genomic region. '
         'Searches genes, variants, and regulatory elements in parallel. '

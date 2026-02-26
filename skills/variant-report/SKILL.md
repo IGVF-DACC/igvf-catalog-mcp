@@ -6,23 +6,23 @@ argument-hint: <variant_id>
 
 # Variant Interpretation Report
 
-This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `get_entity`, `search_region`, `find_associations`, `find_ld`, `resolve_id`, and `list_sources`. The server must be configured and running.
+This skill queries the **IGVF Catalog MCP server** (`igvf-catalog`), which exposes a genomics knowledge graph through six tools: `igvf-catalog-get_entity`, `igvf-catalog-search_region`, `igvf-catalog-find_associations`, `igvf-catalog-find_ld`, `igvf-catalog-resolve_id`, and `igvf-catalog-list_sources`. The server must be configured and running.
 
 Generate a structured interpretation report for variant `$ARGUMENTS`.
 
 ## Workflow
 
 ### Step 1: Resolve Identity
-Call `resolve_id(id=$ARGUMENTS)` to normalize identifiers (rsID, SPDI, HGVS, ClinGen). Note genomic coordinates for downstream queries.
+Call `igvf-catalog-resolve_id(id=$ARGUMENTS)` to normalize identifiers (rsID, SPDI, HGVS, ClinGen). Note genomic coordinates for downstream queries.
 
 ### Step 2: Gather Evidence (parallel)
 Run these in parallel:
 
-- `find_associations(entity_id, relationship="genetic")` — GWAS phenotypes (OpenTargets), disease associations (ClinGen)
-- `find_associations(entity_id, relationship="regulatory")` — eQTL/sQTL effects: genes, tissues, effect sizes
-- `find_associations(entity_id, relationship="pharmacological")` — Drug interactions (PharmGKB): phenotype category, biogeographical group
-- `find_associations(entity_id, relationship="coding")` — Protein impact predictions (dbNSFP): SIFT, PolyPhen, CADD, REVEL
-- `find_ld(variant_id, ancestry="EUR", r2_threshold=0.8)` — LD proxy variants
+- `igvf-catalog-find_associations(entity_id, relationship="genetic")` — GWAS phenotypes (OpenTargets), disease associations (ClinGen)
+- `igvf-catalog-find_associations(entity_id, relationship="regulatory")` — eQTL/sQTL effects: genes, tissues, effect sizes
+- `igvf-catalog-find_associations(entity_id, relationship="pharmacological")` — Drug interactions (PharmGKB): phenotype category, biogeographical group
+- `igvf-catalog-find_associations(entity_id, relationship="coding")` — Protein impact predictions (dbNSFP): SIFT, PolyPhen, CADD, REVEL
+- `igvf-catalog-find_ld(variant_id, ancestry="EUR", r2_threshold=0.8)` — LD proxy variants
 
 ### Step 3: Compile Report
 

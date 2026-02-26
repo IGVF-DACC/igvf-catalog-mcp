@@ -17,7 +17,7 @@ from ..services.edge_config import (
 
 # Tool definition
 FIND_ASSOCIATIONS_TOOL = Tool(
-    name='find_associations',
+    name='igvf-catalog-find_associations',
     description=(
         'Find connections between entities in the knowledge graph. '
         'Discovers eQTLs, GWAS associations, protein interactions, pathways, and more. '
