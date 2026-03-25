@@ -22,7 +22,7 @@ pip install -e ".[dev]"
 Configure the API URL (optional):
 
 ```bash
-export IGVF_CATALOG_API_URL=https://api.catalog.igvf.org  # default
+export IGVF_CATALOG_API_URL=https://api.catalogkg.igvf.org  # default
 # or for development:
 export IGVF_CATALOG_API_URL=http://localhost:2023
 ```

@@ -18,7 +18,7 @@ from .resources.schemas import ALL_RESOURCES, get_resource_content
 
 
 # Configuration
-API_URL = os.getenv('IGVF_CATALOG_API_URL', 'https://api.catalog.igvf.org')
+API_URL = os.getenv('IGVF_CATALOG_API_URL', 'https://api.catalogkg.igvf.org')
 
 # Create MCP server instance
 app = Server('igvf-catalog-mcp')
