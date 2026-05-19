@@ -7,7 +7,7 @@ from mcp.types import Tool, TextContent
 
 from ..services.api_client import IGVFCatalogClient
 from ..services.id_parser import IDParser
-from ..services.formatter import format_error
+from ..services.formatter import format_error, build_pagination_metadata
 
 
 # Tool definition
@@ -17,7 +17,8 @@ FIND_LD_TOOL = Tool(
         'Find variants in linkage disequilibrium (LD) with a query variant. '
         'LD measures the non-random association of alleles at different loci. '
         'Returns variants with their r² and D\' statistics across different populations. '
-        'Useful for fine-mapping GWAS signals and identifying proxy SNPs.'
+        'Useful for fine-mapping GWAS signals and identifying proxy SNPs. '
+        'Supports pagination — check _pagination.has_more in the response and use the page parameter to retrieve additional results.'
     ),
     inputSchema={
         'type': 'object',
@@ -57,6 +58,12 @@ FIND_LD_TOOL = Tool(
                 'description': 'Return full variant details (default: false)',
                 'default': False,
             },
+            'page': {
+                'type': 'integer',
+                'description': 'Page number (0-indexed). Use when previous results indicated more data is available.',
+                'minimum': 0,
+                'default': 0,
+            },
         },
         'required': ['variant_id'],
     },
@@ -80,6 +87,7 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
         ancestry = arguments.get('ancestry', 'EUR')
         limit = arguments.get('limit', 100)
         verbose = arguments.get('verbose', False)
+        page = arguments.get('page', 0)
 
         # Detect variant type and normalize ID
         entity_type, param_name = IDParser.detect_entity_type(variant_id)
@@ -101,7 +109,7 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
             'r2': f'gte:{r2_threshold}',
             'ancestry': ancestry,
             'limit': min(limit, 500),
-            'page': 0,
+            'page': page,
         }
 
         # Add D' threshold if provided
@@ -140,7 +148,9 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
             ]
 
         # Format response
+        effective_limit = min(limit, 500)
         response_data = {
+            '_pagination': build_pagination_metadata(ld_results, page, effective_limit),
             'query_variant': normalized_id,
             'param_used': param_name,
             'ancestry': ancestry,
