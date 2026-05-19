@@ -35,7 +35,7 @@ This MCP server provides **intent-based semantic tools** that abstract away comp
 │  ├── RegionParser  (normalize "chr1:1M-2M" formats)         │
 │  ├── EdgeConfig    (NEW: endpoint parameter mapping)        │
 │  ├── APIClient     (httpx async client)                     │
-│  └── Formatter     (standardize responses)                  │
+│  └── Formatter     (pagination metadata, response formatting)│
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -94,7 +94,7 @@ igvf-catalog-mcp/
 │   │   ├── region_parser.py    # RegionParser class
 │   │   ├── edge_config.py      # NEW: Edge endpoint configuration
 │   │   ├── api_client.py       # IGVFCatalogAPIClient (httpx)
-│   │   └── formatter.py        # Response formatting (placeholder)
+│   │   └── formatter.py        # Response formatting + pagination metadata
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   ├── get_entity.py       # get_entity tool
@@ -125,12 +125,13 @@ igvf-catalog-mcp/
 2. **IDParser** - Pattern matching for all major ID types (including gene_name fix)
 3. **RegionParser** - Handles chr prefix, M/K suffixes, validation
 4. **EdgeConfig** - Centralized edge endpoint configuration system (NEW)
-5. **APIClient** - Async httpx client with error handling
-6. **Tool Implementations** - All 6 tools fully implemented:
+5. **APIClient** - Async httpx client with error handling, pagination-aware
+6. **Pagination** - All multi-result tools support explicit page parameter and return `_pagination` metadata with `has_more` signals
+7. **Tool Implementations** - All 6 tools fully implemented:
    - `get_entity` - Complete with auto-detection
-   - `search_region` - Complete with flexible region parsing
-   - `find_associations` - Complete with edge config integration
-   - `find_ld` - Complete LD-specific tool
+   - `search_region` - Complete with flexible region parsing + pagination
+   - `find_associations` - Complete with edge config integration + per-endpoint pagination
+   - `find_ld` - Complete LD-specific tool + pagination
    - `resolve_id` - Complete ID translation
    - `list_sources` - Complete with accurate source data
 7. **Unit Tests** - Core services have test coverage including edge config
@@ -143,10 +144,10 @@ igvf-catalog-mcp/
    - ID format guide resource
    - Example queries
 
-2. **Formatter Service** - Placeholder, needs:
-   - Response truncation for large results
-   - Field selection logic
-   - LLM-friendly formatting
+2. **Formatter Service** - Partially implemented:
+   - ✅ `build_pagination_metadata()` helper for pagination signals
+   - Needs: Response truncation for large results
+   - Needs: Field selection logic
 
 ### ❌ Not Started
 
@@ -284,7 +285,7 @@ Edge endpoints (relationships):
 ### Common Query Parameters
 
 Most endpoints accept:
-- `page` (default: 0)
+- `page` (default: 0) — MCP tools expose this as an input parameter and return `_pagination` metadata
 - `limit` (default: 25, max varies)
 - `source` - Filter by data source
 - `verbose` - Include full details (default: false for edge endpoints)
@@ -355,7 +356,7 @@ When understanding the API structure, these files are essential:
 
 4. **Verbose parameter**: Edge endpoints return minimal data by default. Set `verbose=true` for full details (but larger responses).
 
-5. **Pagination**: API uses 0-indexed pages. Default limit is 25.
+5. **Pagination**: API uses 0-indexed pages. Default limit is 25. All multi-result tools (`find_ld`, `find_associations`, `search_region`) expose a `page` input parameter and return `_pagination` metadata with `has_more`, `next_page`, and a natural-language `note` prompting the agent to continue. The heuristic is: if `results_returned == limit`, more pages likely exist.
 
 ## Contact & Resources
 
@@ -365,5 +366,5 @@ When understanding the API structure, these files are essential:
 
 ---
 
-*Last updated: January 8, 2026*
-*Updated with edge configuration system, find_ld tool, and improved association queries*
+*Last updated: May 19, 2026*
+*Updated with pagination support across all multi-result tools*

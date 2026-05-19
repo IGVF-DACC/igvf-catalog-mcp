@@ -68,6 +68,7 @@ class IGVFCatalogClient:
         param_name: str,
         param_value: str,
         additional_params: Optional[dict[str, Any]] = None,
+        page: int = 0,
     ) -> list[dict[str, Any]]:
         """
         Get an entity by ID from the appropriate endpoint.
@@ -77,6 +78,7 @@ class IGVFCatalogClient:
             param_name: Parameter name for the query (e.g., "gene_id")
             param_value: Value for the parameter
             additional_params: Additional query parameters
+            page: Page number (0-indexed)
 
         Returns:
             List of entity objects (usually one, but can be multiple)
@@ -97,7 +99,7 @@ class IGVFCatalogClient:
         if not endpoint:
             raise ValueError(f'Unknown entity type: {entity_type}')
 
-        params = {param_name: param_value, 'page': 0}
+        params = {param_name: param_value, 'page': page}
         if additional_params:
             params.update(additional_params)
 
@@ -118,6 +120,7 @@ class IGVFCatalogClient:
         region_str: str,
         organism: str = 'Homo sapiens',
         limit: int = 25,
+        page: int = 0,
     ) -> list[dict[str, Any]]:
         """
         Search for entities in a genomic region.
@@ -127,6 +130,7 @@ class IGVFCatalogClient:
             region_str: Region string (e.g., "chr1:1000-2000")
             organism: Organism name
             limit: Maximum number of results
+            page: Page number (0-indexed)
 
         Returns:
             List of entity objects
@@ -135,7 +139,7 @@ class IGVFCatalogClient:
             'region': region_str,
             'organism': organism,
             'limit': limit,
-            'page': 0,
+            'page': page,
         }
 
         result = await self.get(endpoint, params)
@@ -152,13 +156,14 @@ class IGVFCatalogClient:
 
         Args:
             endpoint: API endpoint for the relationship
-            params: Query parameters
+            params: Query parameters (should include 'page' if pagination is desired)
             verbose: Whether to return full entity objects
 
         Returns:
             List of association objects
         """
-        query_params = {
-            **params, 'verbose': 'true' if verbose else 'false', 'page': 0}
+        query_params = {**params, 'verbose': 'true' if verbose else 'false'}
+        if 'page' not in query_params:
+            query_params['page'] = 0
         result = await self.get(endpoint, query_params)
         return result if isinstance(result, list) else []

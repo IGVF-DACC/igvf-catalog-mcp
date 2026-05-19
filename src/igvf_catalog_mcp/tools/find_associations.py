@@ -7,7 +7,7 @@ from mcp.types import Tool, TextContent
 
 from ..services.api_client import IGVFCatalogClient
 from ..services.id_parser import IDParser
-from ..services.formatter import format_error
+from ..services.formatter import format_error, build_pagination_metadata
 from ..services.edge_config import (
     get_endpoints_for_entity_and_relationship,
     get_edge_config,
@@ -24,7 +24,8 @@ FIND_ASSOCIATIONS_TOOL = Tool(
         "Relationship types: 'regulatory' (eQTLs, enhancer-gene), 'genetic' (GWAS, disease-gene), "
         "'physical' (protein-protein), 'functional' (pathways, GO terms), 'pharmacological' (drug-variant), "
         "'ld' (linkage disequilibrium), 'coding' (coding variant effects), 'transcription' (gene-transcript-protein). "
-        'Returns detailed associations with p-values, effect sizes, and sources.'
+        'Returns detailed associations with p-values, effect sizes, and sources. '
+        'Supports pagination — check _pagination.has_more in the response and use the page parameter to retrieve additional results.'
     ),
     inputSchema={
         'type': 'object',
@@ -64,6 +65,12 @@ FIND_ASSOCIATIONS_TOOL = Tool(
                 'description': 'Return full entity details (default: false)',
                 'default': False,
             },
+            'page': {
+                'type': 'integer',
+                'description': 'Page number (0-indexed). Use when previous results indicated more data is available.',
+                'minimum': 0,
+                'default': 0,
+            },
         },
         'required': ['entity_id', 'relationship'],
     },
@@ -77,6 +84,7 @@ def build_query_params(
     user_filters: dict[str, Any],
     limit: int,
     verbose: bool,
+    page: int = 0,
 ) -> dict[str, Any]:
     """
     Build query parameters for an edge endpoint based on its configuration.
@@ -88,6 +96,7 @@ def build_query_params(
         user_filters: User-provided filters
         limit: Result limit
         verbose: Whether to request verbose output
+        page: Page number (0-indexed)
 
     Returns:
         Dictionary of query parameters
@@ -95,7 +104,7 @@ def build_query_params(
     params = {
         param_name: entity_id,
         'limit': min(limit, edge_config.get('max_limit', 500)),
-        'page': 0,
+        'page': page,
     }
 
     # Add verbose mode if supported
@@ -168,6 +177,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         filters = arguments.get('filters', {})
         limit = arguments.get('limit', 25)
         verbose = arguments.get('verbose', False)
+        page = arguments.get('page', 0)
 
         # Detect entity type
         entity_type, param_name = IDParser.detect_entity_type(entity_id)
@@ -235,7 +245,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 # Build query parameters
                 try:
                     params = build_query_params(
-                        normalized_id, endpoint_param_name, edge_config, filters, limit, verbose
+                        normalized_id, endpoint_param_name, edge_config, filters, limit, verbose, page
                     )
 
                     # Query the endpoint
@@ -250,11 +260,13 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
                     all_associations.extend(associations)
 
+                    effective_limit = min(limit, edge_config.get('max_limit', 500))
                     query_metadata.append(
                         {
                             'endpoint': endpoint_key,
                             'path': edge_config['path'],
                             'results_count': len(associations),
+                            '_pagination': build_pagination_metadata(associations, page, effective_limit),
                             'params_used': {k: v for k, v in params.items() if k not in ['page']},
                         }
                     )
@@ -270,13 +282,28 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     )
 
         # Format response
+        any_has_more = any(
+            m.get('_pagination', {}).get('has_more', False)
+            for m in query_metadata
+        )
+        top_pagination: dict[str, Any] = {
+            'current_page': page,
+            'limit': limit,
+            'results_returned': len(all_associations[:limit]),
+            'has_more': any_has_more,
+        }
+        if any_has_more:
+            top_pagination['next_page'] = page + 1
+            top_pagination['note'] = f'More results available. Call again with page={page + 1} to continue.'
+
         response_data = {
+            '_pagination': top_pagination,
             'entity_id': normalized_id,
             'entity_type': entity_type,
             'relationship_type': relationship,
             'num_associations': len(all_associations),
             'query_metadata': query_metadata,
-            'associations': all_associations[:limit],  # Respect overall limit
+            'associations': all_associations[:limit],
         }
 
         response_text = json.dumps(response_data, indent=2)
