@@ -5,7 +5,7 @@ from typing import Any
 
 from mcp.types import TextContent, Tool
 
-from ..services.edge_config import EDGE_ENDPOINTS, get_edge_config, get_sources_by_category
+from ..services.edge_config import EDGE_ENDPOINTS, get_edge_config, get_sources_by_category, supports_verbose
 from ..services.formatter import format_error
 
 # Tool definition
@@ -54,6 +54,7 @@ SOURCE_DESCRIPTIONS = {
     'ClinGen': 'Clinical genome resource for variant-disease associations',
     'AFGR': 'Aggregated Functional Genomics Resource - eQTLs, sQTLs',
     'EBI eQTL Catalogue': "EBI's eQTL catalog across multiple studies",
+    'EBI': "EBI eQTL Catalogue - eQTLs and sQTLs across multiple studies",
     'IGVF': 'Impact of Genomic Variation on Function consortium data',
     'ADASTRA': 'Allele-specific TF binding from ChIP-seq',
     'GVATdb': 'Genome Variation and TF binding database',
@@ -67,8 +68,13 @@ SOURCE_DESCRIPTIONS = {
     'OpenTargets': 'Open Targets GWAS catalog',
     'PharmGKB': 'Pharmacogenomics Knowledgebase',
     'Orphanet': 'Rare disease and gene associations',
+    'GenCC': 'Gene Curation Coalition gene-disease validity curations',
     'BioGRID': 'Biological General Repository for Interaction Datasets',
     'CoXPresdb': 'Gene-gene coexpression database',
+    'COXPRESdb': 'Gene-gene coexpression database',
+    'IntAct': 'IntAct molecular interaction database',
+    'BioGRID; IntAct': 'Interactions reported by both BioGRID and IntAct',
+    'ENCODE': 'ENCODE regulatory elements and enhancer-gene predictions',
     'EBI Complex Portal': 'Manually curated protein complexes',
     'Reactome': 'Reactome pathway database',
     'GENCODE': 'GENCODE gene annotation',
@@ -110,6 +116,7 @@ def get_endpoint_details(endpoint_key: str) -> dict[str, Any]:
     details = {
         'endpoint': endpoint_key,
         'path': config.get('path'),
+        'client_method': config.get('client_method'),
         'from_type': config.get('from_type'),
         'to_type': config.get('to_type'),
     }
@@ -133,7 +140,7 @@ def get_endpoint_details(endpoint_key: str) -> dict[str, Any]:
         details['filters'] = config['filters']
 
     details['max_limit'] = config.get('max_limit', 100)
-    details['supports_verbose'] = config.get('supports_verbose', False)
+    details['supports_verbose'] = supports_verbose(config)
 
     return details
 

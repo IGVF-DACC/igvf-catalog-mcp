@@ -1,13 +1,55 @@
-"""Async HTTP client for the IGVF Catalog API."""
+"""Thin wrapper around the generated async IGVF Catalog client."""
 
+import inspect
+import json
 import os
+from functools import cache
 from typing import Any
 
-import httpx
+from igvf_catalog_async_client import ApiClient, AsyncIgvfCatalogApi, Configuration
+from igvf_catalog_async_client.exceptions import ApiException
+from igvf_catalog_async_client.rest import RESTResponse
+
+DEFAULT_API_URL = 'https://api.catalogkg.igvf.org'
+
+
+def resolve_base_url(base_url: str | None = None) -> str:
+    """
+    Resolve the API base URL, including the /api prefix used by the generated client.
+
+    Args:
+        base_url: Explicit base URL. Defaults to IGVF_CATALOG_API_URL or production.
+
+    Returns:
+        Base URL ending in /api, without a trailing slash
+    """
+    url = (base_url or os.getenv('IGVF_CATALOG_API_URL') or DEFAULT_API_URL).rstrip('/')
+    if not url.endswith('/api'):
+        url = f'{url}/api'
+    return url
+
+
+@cache
+def method_params(method_name: str) -> frozenset[str]:
+    """
+    Get the keyword arguments accepted by a generated client method.
+
+    Args:
+        method_name: AsyncIgvfCatalogApi method name (e.g., "genes_from_variants")
+
+    Returns:
+        Set of accepted parameter names, excluding self and the generator's _-prefixed options
+    """
+    method = getattr(AsyncIgvfCatalogApi, method_name, None)
+    if method is None:
+        raise ValueError(f'Unknown IGVF Catalog API method: {method_name}')
+    return frozenset(
+        name for name in inspect.signature(method).parameters if name != 'self' and not name.startswith('_')
+    )
 
 
 class IGVFCatalogClient:
-    """Async HTTP client for querying the IGVF Catalog API."""
+    """Async client for querying the IGVF Catalog API through the generated client."""
 
     def __init__(self, base_url: str | None = None, timeout: float = 30.0):
         """
@@ -17,153 +59,85 @@ class IGVFCatalogClient:
             base_url: Base URL for the API. Defaults to production if not provided.
             timeout: Request timeout in seconds
         """
-        self.base_url = (base_url or os.getenv(
-            'IGVF_CATALOG_API_URL', 'https://api.catalogkg.igvf.org')).rstrip('/')
+        self.base_url = resolve_base_url(base_url)
         self.timeout = timeout
-        self._client: httpx.AsyncClient | None = None
+        self._api_client: ApiClient | None = None
+        self._api: AsyncIgvfCatalogApi | None = None
 
-    async def __aenter__(self):
-        """Async context manager entry."""
-        self._client = httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=self.timeout,
-            follow_redirects=True,
-        )
-        return self
+    @property
+    def api(self) -> AsyncIgvfCatalogApi:
+        """The generated API instance, created on first use."""
+        if self._api is None:
+            self._api_client = ApiClient(Configuration(host=self.base_url))
+            self._api = AsyncIgvfCatalogApi(self._api_client)
+        return self._api
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self._client:
-            await self._client.aclose()
+    async def close(self) -> None:
+        """Close the underlying HTTP session."""
+        if self._api_client is not None:
+            await self._api_client.close()
+        self._api_client = None
+        self._api = None
 
-    async def get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def call(self, method_name: str, **kwargs: Any) -> list[dict[str, Any]]:
         """
-        Make a GET request to the API.
+        Call a generated API method and return the JSON response as a list of dicts.
+
+        The raw JSON is used instead of the generated response models so that every
+        field the API returns is passed through unchanged.
 
         Args:
-            endpoint: API endpoint path (e.g., "/api/genes")
-            params: Query parameters
+            method_name: AsyncIgvfCatalogApi method name (e.g., "genes", "genes_from_variants")
+            **kwargs: Query parameters, using the generated method's keyword names. None values are dropped.
 
         Returns:
-            JSON response as dictionary
+            List of result objects. A single object response is wrapped in a list.
 
         Raises:
-            httpx.HTTPError: If request fails
+            ValueError: If the method does not exist
+            ApiException: If the API returns a non-2xx response
         """
-        if not self._client:
-            raise RuntimeError(
-                "Client not initialized. Use 'async with' context manager.")
+        method_params(method_name)
+        method = getattr(self.api, f'{method_name}_without_preload_content')
 
-        # Clean up params - remove None values
-        if params:
-            params = {k: v for k, v in params.items() if v is not None}
+        params = {k: v for k, v in kwargs.items() if v is not None}
+        response = RESTResponse(await method(**params, _request_timeout=self.timeout))
+        body = await response.read()
 
-        response = await self._client.get(endpoint, params=params)
-        response.raise_for_status()
-        return response.json()
+        if not 200 <= response.status <= 299:
+            try:
+                ApiException.from_response(
+                    http_resp=response,
+                    body=body.decode('utf-8', errors='replace') if body else None,
+                    data=None,
+                )
+            except ApiException as error:
+                # Response headers only add noise to the error text returned to the LLM
+                error.headers = None
+                raise
 
-    async def get_entity(
-        self,
-        entity_type: str,
-        param_name: str,
-        param_value: str,
-        additional_params: dict[str, Any] | None = None,
-        page: int = 0,
-    ) -> list[dict[str, Any]]:
-        """
-        Get an entity by ID from the appropriate endpoint.
-
-        Args:
-            entity_type: Type of entity (gene, variant, etc.)
-            param_name: Parameter name for the query (e.g., "gene_id")
-            param_value: Value for the parameter
-            additional_params: Additional query parameters
-            page: Page number (0-indexed)
-
-        Returns:
-            List of entity objects (usually one, but can be multiple)
-        """
-        endpoint_map = {
-            'gene': '/api/genes',
-            'transcript': '/api/transcripts',
-            'protein': '/api/proteins',
-            'variant': '/api/variants',
-            'ontology': '/api/ontology-terms',
-            'drug': '/api/drugs',
-            'complex': '/api/complexes',
-            'study': '/api/studies',
-            'pathway': '/api/pathways',
-        }
-
-        endpoint = endpoint_map.get(entity_type)
-        if not endpoint:
-            raise ValueError(f'Unknown entity type: {entity_type}')
-
-        params = {param_name: param_value, 'page': page}
-        if additional_params:
-            params.update(additional_params)
-
-        result = await self.get(endpoint, params)
-
-        # Handle different response formats
+        result = json.loads(body) if body else []
         if isinstance(result, list):
             return result
-        elif isinstance(result, dict):
-            # Some endpoints wrap results in a dict
+        if isinstance(result, dict):
             return [result]
-        else:
-            return []
+        return []
 
-    async def search_region(
-        self,
-        endpoint: str,
-        region_str: str,
-        organism: str = 'Homo sapiens',
-        limit: int = 25,
-        page: int = 0,
-    ) -> list[dict[str, Any]]:
-        """
-        Search for entities in a genomic region.
 
-        Args:
-            endpoint: API endpoint to query
-            region_str: Region string (e.g., "chr1:1000-2000")
-            organism: Organism name
-            limit: Maximum number of results
-            page: Page number (0-indexed)
+_client: IGVFCatalogClient | None = None
 
-        Returns:
-            List of entity objects
-        """
-        params = {
-            'region': region_str,
-            'organism': organism,
-            'limit': limit,
-            'page': page,
-        }
 
-        result = await self.get(endpoint, params)
-        return result if isinstance(result, list) else []
+def get_client() -> IGVFCatalogClient:
+    """Get the process-wide API client, creating it on first use."""
+    global _client
+    if _client is None:
+        _client = IGVFCatalogClient()
+    return _client
 
-    async def find_associations(
-        self,
-        endpoint: str,
-        params: dict[str, Any],
-        verbose: bool = False,
-    ) -> list[dict[str, Any]]:
-        """
-        Find associations/relationships between entities.
 
-        Args:
-            endpoint: API endpoint for the relationship
-            params: Query parameters (should include 'page' if pagination is desired)
-            verbose: Whether to return full entity objects
-
-        Returns:
-            List of association objects
-        """
-        query_params = {**params, 'verbose': 'true' if verbose else 'false'}
-        if 'page' not in query_params:
-            query_params['page'] = 0
-        result = await self.get(endpoint, query_params)
-        return result if isinstance(result, list) else []
+async def close_client() -> None:
+    """Close the process-wide API client, if one was created."""
+    global _client
+    if _client is not None:
+        await _client.close()
+        _client = None

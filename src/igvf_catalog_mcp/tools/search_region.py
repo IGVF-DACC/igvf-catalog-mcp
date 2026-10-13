@@ -6,9 +6,16 @@ from typing import Any
 
 from mcp.types import TextContent, Tool
 
-from ..services.api_client import IGVFCatalogClient
+from ..services.api_client import get_client
 from ..services.formatter import build_pagination_metadata, format_error
 from ..services.region_parser import RegionParser
+
+# Generated client method queried for each entity type
+REGION_QUERY_METHODS = {
+    'genes': 'genes',
+    'variants': 'variants',
+    'regulatory_elements': 'genomic_elements',
+}
 
 # Tool definition
 SEARCH_REGION_TOOL = Tool(
@@ -87,43 +94,37 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
             warning = ''
 
         # Build queries for different entity types
-        queries = {}
-
-        if 'genes' in include:
-            queries['genes'] = ('/api/genes', str(region))
-
-        if 'variants' in include:
-            queries['variants'] = ('/api/variants', str(region))
-
-        if 'regulatory_elements' in include:
-            queries['regulatory_elements'] = (
-                '/api/genomic-elements', str(region))
+        queries = {
+            entity_type: method_name
+            for entity_type, method_name in REGION_QUERY_METHODS.items()
+            if entity_type in include
+        }
 
         # Execute queries in parallel
-        async with IGVFCatalogClient() as client:
-            tasks = {
-                entity_type: client.search_region(
-                    endpoint=endpoint,
-                    region_str=region_str_query,
-                    organism=organism,
-                    limit=limit,
-                    page=page,
-                )
-                for entity_type, (endpoint, region_str_query) in queries.items()
-            }
+        client = get_client()
+        tasks = {
+            entity_type: client.call(
+                method_name,
+                region=str(region),
+                organism=organism,
+                limit=limit,
+                page=page,
+            )
+            for entity_type, method_name in queries.items()
+        }
 
-            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
-            # Combine results with per-type pagination metadata
-            response = {}
-            for entity_type, result in zip(tasks.keys(), results):
-                if isinstance(result, Exception):
-                    response[entity_type] = {'error': str(result)}
-                else:
-                    response[entity_type] = {
-                        '_pagination': build_pagination_metadata(result, page, limit),
-                        'items': result,
-                    }
+        # Combine results with per-type pagination metadata
+        response = {}
+        for entity_type, result in zip(tasks.keys(), results):
+            if isinstance(result, Exception):
+                response[entity_type] = {'error': str(result)}
+            else:
+                response[entity_type] = {
+                    '_pagination': build_pagination_metadata(result, page, limit),
+                    'items': result,
+                }
 
         # Format response
         any_has_more = any(

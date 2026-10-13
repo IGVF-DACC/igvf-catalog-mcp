@@ -5,7 +5,7 @@ from typing import Any
 
 from mcp.types import TextContent, Tool
 
-from ..services.api_client import IGVFCatalogClient
+from ..services.api_client import get_client
 from ..services.formatter import format_error
 from ..services.id_parser import IDParser
 
@@ -53,12 +53,10 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
         normalized_id = IDParser.normalize_identifier(entity_id, entity_type)
 
         # Query the API to get the full entity
-        async with IGVFCatalogClient() as client:
-            entities = await client.get_entity(
-                entity_type=entity_type,
-                param_name=param_name,
-                param_value=normalized_id,
-            )
+        entities = await get_client().call(
+            IDParser.get_client_method(entity_type),
+            **{param_name: normalized_id, 'page': 0},
+        )
 
         if not entities:
             return [
