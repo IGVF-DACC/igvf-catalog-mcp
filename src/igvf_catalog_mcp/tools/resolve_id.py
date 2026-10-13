@@ -3,12 +3,11 @@
 import json
 from typing import Any
 
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
 from ..services.api_client import IGVFCatalogClient
-from ..services.id_parser import IDParser
 from ..services.formatter import format_error
-
+from ..services.id_parser import IDParser
 
 # Tool definition
 RESOLVE_ID_TOOL = Tool(
@@ -48,7 +47,6 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
     """
     try:
         entity_id = arguments['id']
-        target_type = arguments.get('target_type')
 
         # Detect entity type
         entity_type, param_name = IDParser.detect_entity_type(entity_id)

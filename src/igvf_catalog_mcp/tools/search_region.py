@@ -4,12 +4,11 @@ import asyncio
 import json
 from typing import Any
 
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
 from ..services.api_client import IGVFCatalogClient
+from ..services.formatter import build_pagination_metadata, format_error
 from ..services.region_parser import RegionParser
-from ..services.formatter import format_error, build_pagination_metadata
-
 
 # Tool definition
 SEARCH_REGION_TOOL = Tool(
@@ -19,7 +18,8 @@ SEARCH_REGION_TOOL = Tool(
         'Searches genes, variants, and regulatory elements in parallel. '
         "Supports flexible region formats: 'chr1:1000-2000', '1:1M-2M', 'chrX:1,000,000-2,000,000'. "
         'Returns genes, variants, and regulatory elements found in the region. '
-        'Supports pagination — check _pagination.has_more in the response and use the page parameter to retrieve additional results.'
+        'Supports pagination — check _pagination.has_more in the response and use the page parameter '
+        'to retrieve additional results.'
     ),
     inputSchema={
         'type': 'object',

@@ -1,6 +1,7 @@
 """Tests for API client."""
 
 import pytest
+
 from igvf_catalog_mcp.services.api_client import IGVFCatalogClient
 
 

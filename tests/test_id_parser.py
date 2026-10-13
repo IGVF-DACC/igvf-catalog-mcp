@@ -1,6 +1,7 @@
 """Tests for ID parser."""
 
 import pytest
+
 from igvf_catalog_mcp.services.id_parser import IDParser
 
 

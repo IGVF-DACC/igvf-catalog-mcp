@@ -1,7 +1,7 @@
 """Entity ID parser with auto-detection of entity types."""
 
 import re
-from typing import Literal, Optional
+from typing import Literal
 
 EntityType = Literal[
     'gene',
@@ -61,7 +61,7 @@ class IDParser:
 
     @classmethod
     def detect_entity_type(
-        cls, identifier: str, hint: Optional[str] = None
+        cls, identifier: str, hint: str | None = None
     ) -> tuple[EntityType, str]:
         """
         Detect entity type from an identifier string.

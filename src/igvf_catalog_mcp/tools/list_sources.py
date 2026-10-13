@@ -3,11 +3,10 @@
 import json
 from typing import Any
 
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
+from ..services.edge_config import EDGE_ENDPOINTS, get_edge_config, get_sources_by_category
 from ..services.formatter import format_error
-from ..services.edge_config import get_sources_by_category, get_edge_config, EDGE_ENDPOINTS
-
 
 # Tool definition
 LIST_SOURCES_TOOL = Tool(

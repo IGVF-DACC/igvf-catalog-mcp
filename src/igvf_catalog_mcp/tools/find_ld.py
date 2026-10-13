@@ -3,12 +3,11 @@
 import json
 from typing import Any
 
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
 from ..services.api_client import IGVFCatalogClient
+from ..services.formatter import build_pagination_metadata, format_error
 from ..services.id_parser import IDParser
-from ..services.formatter import format_error, build_pagination_metadata
-
 
 # Tool definition
 FIND_LD_TOOL = Tool(
@@ -18,7 +17,8 @@ FIND_LD_TOOL = Tool(
         'LD measures the non-random association of alleles at different loci. '
         'Returns variants with their r² and D\' statistics across different populations. '
         'Useful for fine-mapping GWAS signals and identifying proxy SNPs. '
-        'Supports pagination — check _pagination.has_more in the response and use the page parameter to retrieve additional results.'
+        'Supports pagination — check _pagination.has_more in the response and use the page parameter '
+        'to retrieve additional results.'
     ),
     inputSchema={
         'type': 'object',

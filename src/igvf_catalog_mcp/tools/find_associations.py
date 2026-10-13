@@ -3,17 +3,16 @@
 import json
 from typing import Any
 
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
 from ..services.api_client import IGVFCatalogClient
-from ..services.id_parser import IDParser
-from ..services.formatter import format_error, build_pagination_metadata
 from ..services.edge_config import (
-    get_endpoints_for_entity_and_relationship,
-    get_edge_config,
     RELATIONSHIP_TYPE_MAPPING,
+    get_edge_config,
+    get_endpoints_for_entity_and_relationship,
 )
-
+from ..services.formatter import build_pagination_metadata, format_error
+from ..services.id_parser import IDParser
 
 # Tool definition
 FIND_ASSOCIATIONS_TOOL = Tool(
@@ -25,7 +24,8 @@ FIND_ASSOCIATIONS_TOOL = Tool(
         "'physical' (protein-protein), 'functional' (pathways, GO terms), 'pharmacological' (drug-variant), "
         "'ld' (linkage disequilibrium), 'coding' (coding variant effects), 'transcription' (gene-transcript-protein). "
         'Returns detailed associations with p-values, effect sizes, and sources. '
-        'Supports pagination — check _pagination.has_more in the response and use the page parameter to retrieve additional results.'
+        'Supports pagination — check _pagination.has_more in the response and use the page parameter '
+        'to retrieve additional results.'
     ),
     inputSchema={
         'type': 'object',

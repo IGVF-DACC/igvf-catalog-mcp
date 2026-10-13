@@ -1,21 +1,21 @@
 """IGVF Catalog MCP Server entry point."""
 
 import os
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent
 
-# Import tools
-from .tools.get_entity import GET_ENTITY_TOOL, get_entity
-from .tools.search_region import SEARCH_REGION_TOOL, search_region
-from .tools.find_associations import FIND_ASSOCIATIONS_TOOL, find_associations
-from .tools.find_ld import FIND_LD_TOOL, find_ld
-from .tools.resolve_id import RESOLVE_ID_TOOL, resolve_id
-from .tools.list_sources import LIST_SOURCES_TOOL, list_sources
-
 # Import resources
 from .resources.schemas import ALL_RESOURCES, get_resource_content
+from .tools.find_associations import FIND_ASSOCIATIONS_TOOL, find_associations
+from .tools.find_ld import FIND_LD_TOOL, find_ld
 
+# Import tools
+from .tools.get_entity import GET_ENTITY_TOOL, get_entity
+from .tools.list_sources import LIST_SOURCES_TOOL, list_sources
+from .tools.resolve_id import RESOLVE_ID_TOOL, resolve_id
+from .tools.search_region import SEARCH_REGION_TOOL, search_region
 
 # Configuration
 API_URL = os.getenv('IGVF_CATALOG_API_URL', 'https://api.catalogkg.igvf.org')

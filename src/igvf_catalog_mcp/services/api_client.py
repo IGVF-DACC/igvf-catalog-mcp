@@ -1,7 +1,7 @@
 """Async HTTP client for the IGVF Catalog API."""
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -9,7 +9,7 @@ import httpx
 class IGVFCatalogClient:
     """Async HTTP client for querying the IGVF Catalog API."""
 
-    def __init__(self, base_url: Optional[str] = None, timeout: float = 30.0):
+    def __init__(self, base_url: str | None = None, timeout: float = 30.0):
         """
         Initialize the API client.
 
@@ -20,7 +20,7 @@ class IGVFCatalogClient:
         self.base_url = (base_url or os.getenv(
             'IGVF_CATALOG_API_URL', 'https://api.catalogkg.igvf.org')).rstrip('/')
         self.timeout = timeout
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -36,7 +36,7 @@ class IGVFCatalogClient:
         if self._client:
             await self._client.aclose()
 
-    async def get(self, endpoint: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    async def get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Make a GET request to the API.
 
@@ -67,7 +67,7 @@ class IGVFCatalogClient:
         entity_type: str,
         param_name: str,
         param_value: str,
-        additional_params: Optional[dict[str, Any]] = None,
+        additional_params: dict[str, Any] | None = None,
         page: int = 0,
     ) -> list[dict[str, Any]]:
         """

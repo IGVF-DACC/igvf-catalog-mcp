@@ -13,8 +13,8 @@ Environment Variables:
 import json
 import os
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 
 
 def query_llm(question: str, verbose: bool = False) -> dict:
@@ -78,7 +78,7 @@ def query_llm(question: str, verbose: bool = False) -> dict:
         error_body = ""
         try:
             error_body = e.read().decode("utf-8")
-        except:
+        except Exception:
             pass
         return {
             "success": False,

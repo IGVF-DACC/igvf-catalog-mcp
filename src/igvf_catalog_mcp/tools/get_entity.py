@@ -1,13 +1,12 @@
 """Get entity tool - universal entity lookup with auto-detection."""
 
-from typing import Any, Optional
+from typing import Any
 
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
 from ..services.api_client import IGVFCatalogClient
-from ..services.id_parser import IDParser
 from ..services.formatter import add_entity_type, format_error
-
+from ..services.id_parser import IDParser
 
 # Tool definition
 GET_ENTITY_TOOL = Tool(

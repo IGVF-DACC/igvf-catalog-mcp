@@ -1,13 +1,12 @@
 """Tests for edge configuration system."""
 
-import pytest
 
 from igvf_catalog_mcp.services.edge_config import (
     EDGE_ENDPOINTS,
     RELATIONSHIP_TYPE_MAPPING,
+    get_all_sources,
     get_edge_config,
     get_endpoints_for_entity_and_relationship,
-    get_all_sources,
     get_sources_by_category,
 )
 

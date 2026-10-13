@@ -1,11 +1,11 @@
 """Tests verifying all MCP tools have the igvf-catalog- prefix."""
 
-from igvf_catalog_mcp.tools.get_entity import GET_ENTITY_TOOL
-from igvf_catalog_mcp.tools.search_region import SEARCH_REGION_TOOL
 from igvf_catalog_mcp.tools.find_associations import FIND_ASSOCIATIONS_TOOL
 from igvf_catalog_mcp.tools.find_ld import FIND_LD_TOOL
-from igvf_catalog_mcp.tools.resolve_id import RESOLVE_ID_TOOL
+from igvf_catalog_mcp.tools.get_entity import GET_ENTITY_TOOL
 from igvf_catalog_mcp.tools.list_sources import LIST_SOURCES_TOOL
+from igvf_catalog_mcp.tools.resolve_id import RESOLVE_ID_TOOL
+from igvf_catalog_mcp.tools.search_region import SEARCH_REGION_TOOL
 
 ALL_TOOLS = [
     GET_ENTITY_TOOL,

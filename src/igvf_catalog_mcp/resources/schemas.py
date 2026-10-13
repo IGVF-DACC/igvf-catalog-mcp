@@ -1,6 +1,6 @@
 """MCP resources for entity schemas."""
 
-from mcp.types import Resource, TextContent
+from mcp.types import Resource
 
 # Gene schema
 GENE_SCHEMA = Resource(
