@@ -144,6 +144,7 @@ async def test_find_associations_variant_regulatory_filters(fake_catalog):
 
 async def test_find_associations_gene_symbol(fake_catalog):
     fake_catalog.add('/genes/variants', [{'variant': 'variants/x'}])
+    fake_catalog.add('/genes/genomic-elements', [{'genomic_element': 'genomic_elements/x'}])
 
     data = response_json(
         await call_tool('igvf_catalog_find_associations', {'entity_id': 'ZC3H12A', 'relationship': 'regulatory'})
@@ -152,8 +153,8 @@ async def test_find_associations_gene_symbol(fake_catalog):
     assert fake_catalog.params_for('/genes/variants') == [{'gene_name': 'ZC3H12A', 'page': '0', 'limit': '25'}]
     metadata = {m['endpoint']: m for m in data['query_metadata']}
     assert metadata['genes_variants']['results_count'] == 1
-    assert 'not supported' in metadata['genomic_elements_genes']['error']
-    assert fake_catalog.params_for('/genomic-elements/genes') == []
+    assert metadata['genes_genomic_elements']['results_count'] == 1
+    assert fake_catalog.params_for('/genes/genomic-elements') == [{'gene_name': 'ZC3H12A', 'page': '0', 'limit': '25'}]
 
 
 async def test_find_associations_protein_go_terms(fake_catalog):

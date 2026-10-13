@@ -415,6 +415,23 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         },
         'max_limit': 500,
     },
+    # Gene-Genomic Element relationships (E2G predictions, CRISPR screens), queried from the gene side
+    'genes_genomic_elements': {
+        'client_method': 'genomic_elements_from_genes',
+        'path': '/genes/genomic-elements',
+        'from_type': 'gene',
+        'to_type': 'genomic_element',
+        'from_params': GENE_PARAMS,
+        'sources': ['ENCODE', 'IGVF'],
+        'methods': ['CRISPR screen', 'ENCODE-rE2G', 'Perturb-seq', 'scE2G'],
+        'filters': {
+            'biosample_term': 'string',
+            'biological_context': 'string',
+            'neg_log10_pvalue': 'range',
+            'files_fileset': 'string',
+        },
+        'max_limit': 500,
+    },
     # Genomic Element-Biosample relationships (MPRA)
     'genomic_elements_biosamples': {
         'client_method': 'biosamples_from_genomic_elements',
@@ -462,7 +479,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
 # Relationship type to endpoint mapping for higher-level abstractions
 RELATIONSHIP_TYPE_MAPPING = {
     'regulatory': {
-        'gene': ['genes_variants', 'genomic_elements_genes'],
+        'gene': ['genes_variants', 'genes_genomic_elements'],
         'variant': ['variants_genes', 'variants_genomic_elements'],
         'genomic_element': ['genomic_elements_genes'],
     },

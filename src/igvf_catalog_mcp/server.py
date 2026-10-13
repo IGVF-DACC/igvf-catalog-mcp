@@ -6,13 +6,10 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent
 
-# Import resources
 from .resources.schemas import ALL_RESOURCES, get_resource_content
 from .services.api_client import close_client
 from .tools.find_associations import FIND_ASSOCIATIONS_TOOL, find_associations
 from .tools.find_ld import FIND_LD_TOOL, find_ld
-
-# Import tools
 from .tools.get_entity import GET_ENTITY_TOOL, get_entity
 from .tools.list_sources import LIST_SOURCES_TOOL, list_sources
 from .tools.resolve_id import RESOLVE_ID_TOOL, resolve_id

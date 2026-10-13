@@ -17,6 +17,7 @@
   - Gene edges accept `synonym` instead of `alias`; protein edges accept `uniprot_name` and `uniprot_full_name` instead of `full_name`; ontology terms are sent as `disease_id` (not `disease_name`) to `/diseases/genes`.
   - Removed parameters the API does not have: `chr`/`position` (LD), `GENCODE_category` (variants/drugs), `disease_id`/`disease_name` (variants/diseases, now `assertion` and `pmid`), `files_fileset` (variants/coding-variants), `biosample_id`/`biosample_synonyms` (biosamples/genomic-elements), `biosample_*` (genomic-elements/genes, now `biosample_term`), and `log10pvalue` on variants/proteins and variants/genomic-elements.
   - Source, method and label values match the API enums (e.g. `EBI` instead of `EBI eQTL Catalogue`, `spliceQTL` instead of `splice_QTL`), and are only sent to endpoints that accept them. `AMR` was removed from the LD ancestries, which the API does not support.
+  - Gene `regulatory` associations query `/genes/genomic-elements` for E2G predictions and CRISPR screens; `/genomic-elements/genes` only accepts a region, so this part of the query never returned results.
   - Identifier types an endpoint does not accept (e.g. an rsID for `/variants/coding-variants`) are reported in `query_metadata` without calling the API.
 - Fixed existing `ruff check` errors.
 

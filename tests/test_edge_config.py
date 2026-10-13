@@ -170,7 +170,7 @@ def test_get_endpoints_for_gene_regulatory():
     endpoints = get_endpoints_for_entity_and_relationship(
         'gene', 'regulatory')
     assert 'genes_variants' in endpoints
-    assert 'genomic_elements_genes' in endpoints
+    assert 'genes_genomic_elements' in endpoints
 
 
 def test_get_endpoints_for_variant_ld():
