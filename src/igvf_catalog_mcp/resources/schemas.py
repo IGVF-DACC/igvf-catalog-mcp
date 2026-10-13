@@ -168,7 +168,7 @@ Returns: Phenotypes/diseases associated with the variant
 ```json
 Tool: list_sources
 Input: {"category": "gene_expression"}
-Returns: GTEx, AFGR, EBI eQTL Catalogue details
+Returns: AFGR, EBI eQTL Catalogue, IGVF details
 ```
 
 ## 7. Find protein-protein interactions

@@ -12,6 +12,8 @@ cd igvf-catalog-mcp
 pip install -e ".[dev]"
 ```
 
+To run the published package instead, use `uvx igvf-catalog-mcp` or `pip install igvf-catalog-mcp`.
+
 ## Running the Server
 
 ### Development/Local Testing
@@ -95,7 +97,7 @@ The server provides read-only resources:
 ## Configuration
 
 Environment variables:
-- `IGVF_CATALOG_API_URL` - API base URL (default: https://api.catalog.igvf.org)
+- `IGVF_CATALOG_API_URL` - API base URL (default: https://api.catalogkg.igvf.org). `/api` is appended if missing.
 
 ## Architecture
 
@@ -110,7 +112,7 @@ igvf-catalog-mcp/
 │   │   ├── resolve_id.py
 │   │   └── list_sources.py
 │   ├── services/          # Core services
-│   │   ├── api_client.py  # Async HTTP client
+│   │   ├── api_client.py  # Wrapper around the generated async client
 │   │   ├── id_parser.py   # ID type detection
 │   │   ├── region_parser.py
 │   │   └── formatter.py
