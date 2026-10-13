@@ -7,6 +7,8 @@ to build correct queries with proper parameter names, source values, and filters
 
 from typing import Literal, TypedDict
 
+from .api_client import method_params
+
 EntityType = Literal[
     'gene',
     'transcript',
@@ -25,399 +27,443 @@ EntityType = Literal[
 class EdgeEndpointConfig(TypedDict, total=False):
     """Configuration for an edge endpoint."""
 
-    path: str
+    client_method: str  # AsyncIgvfCatalogApi method name
+    path: str  # API path, for display
     from_type: EntityType
     to_type: EntityType
     from_params: list[str]  # Valid parameter names for the "from" entity
-    # Valid parameter names for the "to" entity (if bidirectional)
-    to_params: list[str]
-    sources: list[str]  # Valid source values
+    sources: list[str]  # Data sources; valid `source` filter values where the endpoint accepts one
     labels: list[str]  # Valid label/edge type values
     methods: list[str]  # Valid method values
     filters: dict[str, str]  # Filter name -> type (range, string, enum)
-    supports_verbose: bool  # Whether the endpoint supports verbose mode
     max_limit: int  # Maximum page size
+
+
+GENE_PARAMS = ['gene_id', 'gene_name', 'hgnc_id', 'synonym']
+PROTEIN_PARAMS = ['protein_id', 'protein_name', 'uniprot_name', 'uniprot_full_name', 'dbxrefs']
+VARIANT_PARAMS = ['variant_id', 'spdi', 'hgvs', 'rsid', 'ca_id']
+
+QTL_SOURCES = ['AFGR', 'EBI', 'IGVF']
+QTL_LABELS = ['eQTL', 'spliceQTL', 'variant effect on gene expression']
+QTL_METHODS = ['CRISPR screen', 'eQTL', 'spliceQTL']
+QTL_FILTERS = {
+    'neg_log10_pvalue': 'range',
+    'effect_size': 'range',
+    'biological_context': 'string',
+    'files_fileset': 'string',
+}
+
+VARIANT_PROTEIN_SOURCES = ['ADASTRA', 'GVATdb', 'IGVF', 'UKB']
+VARIANT_PROTEIN_LABELS = ['allele-specific binding', 'pQTL', 'predicted allele-specific binding']
+VARIANT_PROTEIN_METHODS = ['ADASTRA', 'GVATdb', 'SEMVAR', 'pQTL']
+
+PHENOTYPE_LABELS = [
+    'GWAS',
+    'predicted variant effect on phenotype',
+    'protein variant effect',
+    'variant effect on phenotype',
+]
+PHENOTYPE_METHODS = ['CRISPR screen', 'GWAS', 'SGE', 'cV2F']
 
 
 # Complete edge endpoint registry
 EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
-    # Variant-Gene relationships (eQTLs, sQTLs)
+    # Variant-Gene relationships (eQTLs, sQTLs, CRISPR screens)
     'variants_genes': {
-        'path': '/api/variants/genes',
+        'client_method': 'genes_from_variants',
+        'path': '/variants/genes',
         'from_type': 'variant',
         'to_type': 'gene',
-        'from_params': ['variant_id', 'spdi', 'hgvs', 'rsid', 'ca_id'],
-        'sources': ['AFGR', 'EBI eQTL Catalogue', 'IGVF'],
-        'labels': ['eQTL', 'splice_QTL', 'variant effect on gene expression'],
-        'methods': ['Variant-EFFECTS'],
-        'filters': {
-            'log10pvalue': 'range',
-            'effect_size': 'range',
-            'biological_context': 'string',
-            'files_fileset': 'string',
-        },
-        'supports_verbose': True,
+        'from_params': VARIANT_PARAMS,
+        'sources': QTL_SOURCES,
+        'labels': QTL_LABELS,
+        'methods': QTL_METHODS,
+        'filters': QTL_FILTERS,
         'max_limit': 500,
     },
     'genes_variants': {
-        'path': '/api/genes/variants',
+        'client_method': 'variants_from_genes',
+        'path': '/genes/variants',
         'from_type': 'gene',
         'to_type': 'variant',
-        'from_params': ['gene_id', 'gene_name', 'hgnc_id', 'alias'],
-        'sources': ['AFGR', 'EBI eQTL Catalogue', 'IGVF'],
-        'labels': ['eQTL', 'splice_QTL', 'variant effect on gene expression'],
-        'methods': ['Variant-EFFECTS'],
-        'filters': {
-            'log10pvalue': 'range',
-            'effect_size': 'range',
-            'biological_context': 'string',
-            'files_fileset': 'string',
-        },
-        'supports_verbose': True,
+        'from_params': GENE_PARAMS,
+        'sources': QTL_SOURCES,
+        'labels': QTL_LABELS,
+        'methods': QTL_METHODS,
+        'filters': QTL_FILTERS,
         'max_limit': 500,
     },
     # Variant-Protein relationships (pQTL, allele-specific binding)
     'variants_proteins': {
-        'path': '/api/variants/proteins',
+        'client_method': 'proteins_from_variants',
+        'path': '/variants/proteins',
         'from_type': 'variant',
         'to_type': 'protein',
-        'from_params': ['variant_id', 'spdi', 'hgvs', 'rsid', 'ca_id', 'region'],
-        'sources': ['ADASTRA', 'GVATdb', 'UKB', 'SEMVAR'],
-        'labels': ['pQTL', 'allele-specific binding'],
-        'methods': ['SEMVAR'],
+        'from_params': VARIANT_PARAMS + ['region'],
+        'sources': VARIANT_PROTEIN_SOURCES,
+        'labels': VARIANT_PROTEIN_LABELS,
+        'methods': VARIANT_PROTEIN_METHODS,
         'filters': {
             'files_fileset': 'string',
-            'log10pvalue': 'range',
         },
-        'supports_verbose': True,
         'max_limit': 100,
     },
     'proteins_variants': {
-        'path': '/api/proteins/variants',
+        'client_method': 'variants_from_proteins',
+        'path': '/proteins/variants',
         'from_type': 'protein',
         'to_type': 'variant',
-        'from_params': ['protein_id', 'protein_name', 'full_name', 'dbxrefs'],
-        'sources': ['ADASTRA', 'GVATdb', 'UKB', 'SEMVAR'],
-        'labels': ['pQTL', 'allele-specific binding'],
-        'methods': ['SEMVAR'],
-        'filters': {},
-        'supports_verbose': True,
+        'from_params': PROTEIN_PARAMS,
+        'sources': VARIANT_PROTEIN_SOURCES,
+        'labels': VARIANT_PROTEIN_LABELS,
+        'methods': VARIANT_PROTEIN_METHODS,
+        'filters': {
+            'files_fileset': 'string',
+        },
         'max_limit': 100,
     },
     # Variant-Phenotype relationships (GWAS)
     'variants_phenotypes': {
-        'path': '/api/variants/phenotypes',
+        'client_method': 'phenotypes_from_variants',
+        'path': '/variants/phenotypes',
         'from_type': 'variant',
         'to_type': 'ontology',
-        'from_params': ['variant_id', 'spdi', 'hgvs', 'rsid', 'ca_id', 'region'],
+        'from_params': VARIANT_PARAMS + ['region'],
         'sources': ['OpenTargets', 'IGVF'],
-        'methods': ['cV2F', 'SGE'],
+        'labels': PHENOTYPE_LABELS,
+        'methods': PHENOTYPE_METHODS,
         'filters': {
-            'log10pvalue': 'range',
+            'neg_log10_pvalue': 'range',
             'phenotype_id': 'string',
             'files_fileset': 'string',
         },
-        'supports_verbose': True,
         'max_limit': 100,
     },
     'phenotypes_variants': {
-        'path': '/api/phenotypes/variants',
+        'client_method': 'variants_from_phenotypes',
+        'path': '/phenotypes/variants',
         'from_type': 'ontology',
         'to_type': 'variant',
         'from_params': ['phenotype_id', 'phenotype_name'],
-        'sources': ['OpenTargets', 'IGVF'],
-        'methods': ['cV2F', 'SGE'],
+        'sources': ['IGVF', 'OpenTargets'],
+        'labels': PHENOTYPE_LABELS,
+        'methods': PHENOTYPE_METHODS,
         'filters': {
-            'log10pvalue': 'range',
+            'neg_log10_pvalue': 'range',
             'files_fileset': 'string',
         },
-        'supports_verbose': True,
         'max_limit': 100,
     },
     # Variant-Drug relationships (PharmGKB)
     'variants_drugs': {
-        'path': '/api/variants/drugs',
+        'client_method': 'drugs_from_variants',
+        'path': '/variants/drugs',
         'from_type': 'variant',
         'to_type': 'drug',
-        'from_params': ['variant_id', 'spdi', 'hgvs', 'rsid', 'ca_id'],
+        'from_params': VARIANT_PARAMS,
         'sources': ['PharmGKB'],
         'filters': {
             'pmid': 'string',
-            'phenotype_categories': 'string',
-            'GENCODE_category': 'enum',
+            'phenotype_categories': 'enum',
         },
-        'supports_verbose': True,
         'max_limit': 100,
     },
     'drugs_variants': {
-        'path': '/api/drugs/variants',
+        'client_method': 'variants_from_drugs',
+        'path': '/drugs/variants',
         'from_type': 'drug',
         'to_type': 'variant',
         'from_params': ['drug_id', 'drug_name'],
         'sources': ['PharmGKB'],
         'filters': {
             'pmid': 'string',
-            'phenotype_categories': 'string',
+            'phenotype_categories': 'enum',
         },
-        'supports_verbose': True,
         'max_limit': 100,
     },
     # Variant-Disease relationships (ClinGen)
     'variants_diseases': {
-        'path': '/api/variants/diseases',
+        'client_method': 'disease_from_variants',
+        'path': '/variants/diseases',
         'from_type': 'variant',
         'to_type': 'ontology',
-        'from_params': ['variant_id', 'spdi', 'hgvs', 'rsid', 'ca_id'],
+        'from_params': VARIANT_PARAMS,
         'sources': ['ClinGen'],
         'filters': {
-            'disease_name': 'string',
-            'disease_id': 'string',
+            'assertion': 'enum',
+            'pmid': 'string',
         },
-        'supports_verbose': True,
         'max_limit': 100,
     },
-    # Gene-Disease relationships (Orphanet, ClinGen)
+    # Gene-Disease relationships (Orphanet, ClinGen, GenCC)
     'genes_diseases': {
-        'path': '/api/genes/diseases',
+        'client_method': 'diseases_from_genes',
+        'path': '/genes/diseases',
         'from_type': 'gene',
         'to_type': 'ontology',
-        'from_params': ['gene_id', 'gene_name', 'alias', 'hgnc_id'],
-        'sources': ['Orphanet', 'ClinGen'],
+        'from_params': GENE_PARAMS,
+        'sources': ['GenCC', 'Orphanet', 'ClinGen'],
         'filters': {},
-        'supports_verbose': True,
         'max_limit': 25,
     },
     'diseases_genes': {
-        'path': '/api/diseases/genes',
+        'client_method': 'genes_from_diseases',
+        'path': '/diseases/genes',
         'from_type': 'ontology',
         'to_type': 'gene',
-        'from_params': ['disease_name', 'disease_id'],
-        'sources': ['Orphanet', 'ClinGen'],
+        'from_params': ['disease_id', 'disease_name'],
+        'sources': ['GenCC', 'Orphanet'],
         'filters': {},
-        'supports_verbose': True,
         'max_limit': 100,
     },
     # Gene-Gene relationships (coexpression, interactions)
     'genes_genes': {
-        'path': '/api/genes/genes',
+        'client_method': 'genes_genes',
+        'path': '/genes/genes',
         'from_type': 'gene',
         'to_type': 'gene',
-        'from_params': ['gene_id', 'gene_name', 'alias', 'hgnc_id'],
-        'sources': ['CoXPresdb', 'BioGRID'],
+        'from_params': GENE_PARAMS,
+        'sources': ['BioGRID', 'COXPRESdb'],
+        'labels': ['co-expression', 'genetic interference'],
         'filters': {
             'z_score': 'range',
-            'interaction_type': 'string',
+            'interaction_type': 'enum',
         },
-        'supports_verbose': False,
         'max_limit': 100,
     },
     # Protein-Protein interactions
     'proteins_proteins': {
-        'path': '/api/proteins/proteins',
+        'client_method': 'proteins_proteins',
+        'path': '/proteins/proteins',
         'from_type': 'protein',
         'to_type': 'protein',
-        'from_params': ['protein_id', 'protein_name', 'full_name', 'dbxrefs'],
-        'sources': ['BioGRID'],
+        'from_params': PROTEIN_PARAMS,
+        'sources': ['BioGRID', 'BioGRID; IntAct', 'IntAct'],
         'filters': {
-            'interaction_type': 'string',
+            'interaction_type': 'enum',
         },
-        'supports_verbose': True,
-        'max_limit': 100,
+        'max_limit': 250,
     },
     # Complex-Protein relationships
     'complexes_proteins': {
-        'path': '/api/complexes/proteins',
+        'client_method': 'proteins_from_complexes',
+        'path': '/complexes/proteins',
         'from_type': 'complex',
         'to_type': 'protein',
         'from_params': ['complex_id', 'complex_name', 'description'],
         'sources': ['EBI Complex Portal'],
         'filters': {},
-        'supports_verbose': True,
         'max_limit': 50,
     },
     'proteins_complexes': {
-        'path': '/api/proteins/complexes',
+        'client_method': 'complexes_from_proteins',
+        'path': '/proteins/complexes',
         'from_type': 'protein',
         'to_type': 'complex',
-        'from_params': ['protein_id', 'protein_name', 'full_name', 'dbxrefs'],
+        'from_params': PROTEIN_PARAMS,
         'sources': ['EBI Complex Portal'],
         'filters': {},
-        'supports_verbose': True,
         'max_limit': 100,
     },
     # Gene-Pathway relationships
     'genes_pathways': {
-        'path': '/api/genes/pathways',
+        'client_method': 'pathways_from_genes',
+        'path': '/genes/pathways',
         'from_type': 'gene',
         'to_type': 'pathway',
-        'from_params': ['gene_id', 'gene_name', 'alias', 'hgnc_id'],
+        'from_params': GENE_PARAMS,
         'sources': ['Reactome'],
         'filters': {},
-        'supports_verbose': True,
-        'max_limit': 100,
+        'max_limit': 500,
     },
     # Gene-Transcript relationships
     'genes_transcripts': {
-        'path': '/api/genes/transcripts',
+        'client_method': 'transcripts_from_genes',
+        'path': '/genes/transcripts',
         'from_type': 'gene',
         'to_type': 'transcript',
-        'from_params': ['gene_id', 'gene_name', 'alias', 'hgnc_id'],
+        'from_params': GENE_PARAMS,
         'sources': ['GENCODE'],
         'filters': {},
-        'supports_verbose': True,
         'max_limit': 100,
     },
     'transcripts_genes': {
-        'path': '/api/transcripts/genes',
+        'client_method': 'genes_from_transcripts',
+        'path': '/transcripts/genes',
         'from_type': 'transcript',
         'to_type': 'gene',
         'from_params': ['transcript_id', 'region'],
         'sources': ['GENCODE'],
         'filters': {},
-        'supports_verbose': True,
         'max_limit': 100,
     },
     # Transcript-Protein relationships
     'transcripts_proteins': {
-        'path': '/api/transcripts/proteins',
+        'client_method': 'proteins_from_transcripts',
+        'path': '/transcripts/proteins',
         'from_type': 'transcript',
         'to_type': 'protein',
         'from_params': ['transcript_id', 'transcript_type', 'region'],
         'sources': ['GENCODE'],
         'filters': {},
-        'supports_verbose': True,
         'max_limit': 100,
     },
     'proteins_transcripts': {
-        'path': '/api/proteins/transcripts',
+        'client_method': 'transcripts_from_proteins',
+        'path': '/proteins/transcripts',
         'from_type': 'protein',
         'to_type': 'transcript',
-        'from_params': ['protein_id', 'protein_name', 'full_name', 'dbxrefs'],
+        'from_params': PROTEIN_PARAMS,
         'sources': ['GENCODE'],
         'filters': {},
-        'supports_verbose': True,
         'max_limit': 100,
     },
     # Motif-Protein relationships
     'motifs_proteins': {
-        'path': '/api/motifs/proteins',
+        'client_method': 'proteins_from_motifs',
+        'path': '/motifs/proteins',
         'from_type': 'ontology',
         'to_type': 'protein',
         'from_params': ['tf_name'],
-        'sources': ['HOCOMOCOv11', 'SEMpl'],
-        'filters': {},
-        'supports_verbose': True,
+        'sources': ['IGVF', 'HOCOMOCOv11'],
+        'methods': ['HOCOMOCO', 'SEMpl'],
+        'filters': {
+            'files_fileset': 'string',
+        },
         'max_limit': 1000,
     },
     'proteins_motifs': {
-        'path': '/api/proteins/motifs',
+        'client_method': 'motifs_from_proteins',
+        'path': '/proteins/motifs',
         'from_type': 'protein',
         'to_type': 'ontology',
-        'from_params': ['protein_id', 'protein_name', 'full_name', 'dbxrefs'],
-        'sources': ['HOCOMOCOv11', 'SEMpl'],
-        'filters': {},
-        'supports_verbose': True,
+        'from_params': PROTEIN_PARAMS,
+        'sources': ['IGVF', 'HOCOMOCOv11'],
+        'methods': ['HOCOMOCO', 'SEMpl'],
+        'filters': {
+            'files_fileset': 'string',
+        },
         'max_limit': 1000,
     },
     # Variant-Variant relationships (Linkage Disequilibrium)
     'variants_variants': {
-        'path': '/api/variants/variant-ld',
+        'client_method': 'variants_from_variant_id',
+        'path': '/variants/variant-ld',
         'from_type': 'variant',
         'to_type': 'variant',
-        'from_params': ['variant_id', 'spdi', 'hgvs', 'rsid', 'ca_id', 'chr', 'position'],
+        'from_params': VARIANT_PARAMS + ['region'],
         'sources': ['TopLD'],
         'filters': {
             'r2': 'range',
             'd_prime': 'range',
             'ancestry': 'enum',
         },
-        'supports_verbose': True,
         'max_limit': 500,
     },
     # Variant-Coding Variant relationships
     'variants_coding_variants': {
-        'path': '/api/variants/coding-variants',
+        'client_method': 'coding_variants_from_variants',
+        'path': '/variants/coding-variants',
         'from_type': 'variant',
         'to_type': 'coding_variant',
         'from_params': ['variant_id', 'spdi', 'hgvs', 'ca_id'],
         'sources': ['dbNSFP'],
-        'filters': {
-            'files_fileset': 'string',
-        },
-        'supports_verbose': False,
+        'filters': {},
         'max_limit': 500,
     },
     'coding_variants_variants': {
-        'path': '/api/coding-variants/variants',
+        'client_method': 'variants_from_coding_variants',
+        'path': '/coding-variants/variants',
         'from_type': 'coding_variant',
         'to_type': 'variant',
         'from_params': ['coding_variant_name', 'hgvsp'],
         'sources': ['dbNSFP'],
         'filters': {},
-        'supports_verbose': False,
         'max_limit': 500,
     },
-    # Variant-Genomic Element relationships (MPRA, caQTL)
+    # Variant-Genomic Element relationships (caQTL)
     'variants_genomic_elements': {
-        'path': '/api/variants/genomic-elements',
+        'client_method': 'genomic_elements_from_variants',
+        'path': '/variants/genomic-elements',
         'from_type': 'variant',
         'to_type': 'genomic_element',
-        'from_params': ['variant_id', 'spdi', 'hgvs', 'rsid', 'ca_id'],
+        'from_params': VARIANT_PARAMS,
         'sources': ['AFGR', 'IGVF'],
-        'methods': ['BlueSTARR', 'lentiMPRA', 'caQTL'],
+        'methods': ['caQTL'],
         'filters': {
+            'biological_context': 'string',
             'files_fileset': 'string',
-            'log10pvalue': 'range',
         },
-        'supports_verbose': True,
-        'max_limit': 100,
+        'max_limit': 300,
     },
-    # Genomic Element-Gene relationships (E2G CRISPR)
+    # Genomic Element-Gene relationships (E2G predictions, CRISPR screens)
     'genomic_elements_genes': {
-        'path': '/api/genomic-elements/genes',
+        'client_method': 'genes_from_genomic_elements',
+        'path': '/genomic-elements/genes',
         'from_type': 'genomic_element',
         'to_type': 'gene',
         'from_params': ['region'],
-        'sources': ['ENCODE_EpiRaction', 'ENCODE-E2G-DNaseOnly', 'ENCODE-E2G-Full', 'ENCODE-E2G-CRISPR'],
-        'methods': ['CRISPR FACS screen', 'Perturb-seq', 'ENCODE-rE2G'],
+        'sources': ['ENCODE', 'IGVF'],
+        'methods': ['CRISPR screen', 'ENCODE-rE2G', 'Perturb-seq', 'scE2G'],
         'filters': {
-            'source_annotation': 'string',
-            'region_type': 'string',
-            'biosample_id': 'string',
-            'biosample_name': 'string',
-            'biosample_synonyms': 'string',
+            'source_annotation': 'enum',
+            'region_type': 'enum',
+            'biosample_term': 'string',
+            'biological_context': 'string',
+            'neg_log10_pvalue': 'range',
             'files_fileset': 'string',
         },
-        'supports_verbose': True,
+        'max_limit': 500,
+    },
+    # Gene-Genomic Element relationships (E2G predictions, CRISPR screens), queried from the gene side
+    'genes_genomic_elements': {
+        'client_method': 'genomic_elements_from_genes',
+        'path': '/genes/genomic-elements',
+        'from_type': 'gene',
+        'to_type': 'genomic_element',
+        'from_params': GENE_PARAMS,
+        'sources': ['ENCODE', 'IGVF'],
+        'methods': ['CRISPR screen', 'ENCODE-rE2G', 'Perturb-seq', 'scE2G'],
+        'filters': {
+            'biosample_term': 'string',
+            'biological_context': 'string',
+            'neg_log10_pvalue': 'range',
+            'files_fileset': 'string',
+        },
         'max_limit': 500,
     },
     # Genomic Element-Biosample relationships (MPRA)
     'genomic_elements_biosamples': {
-        'path': '/api/genomic-elements/biosamples',
+        'client_method': 'biosamples_from_genomic_elements',
+        'path': '/genomic-elements/biosamples',
         'from_type': 'genomic_element',
         'to_type': 'ontology',
         'from_params': ['region'],
-        'sources': ['IGVF'],
-        'methods': ['lentiMPRA', 'MPRA'],
+        'sources': ['ENCODE', 'IGVF'],
+        'methods': ['MPRA'],
+        'filters': {
+            'region_type': 'enum',
+            'files_fileset': 'string',
+        },
+        'max_limit': 50,
+    },
+    'biosamples_genomic_elements': {
+        'client_method': 'genomic_elements_from_biosamples',
+        'path': '/biosamples/genomic-elements',
+        'from_type': 'ontology',
+        'to_type': 'genomic_element',
+        'from_params': ['biosample_name'],
+        'sources': ['ENCODE', 'IGVF'],
+        'methods': ['MPRA'],
         'filters': {
             'files_fileset': 'string',
         },
-        'supports_verbose': True,
-        'max_limit': 100,
-    },
-    'biosamples_genomic_elements': {
-        'path': '/api/biosamples/genomic-elements',
-        'from_type': 'ontology',
-        'to_type': 'genomic_element',
-        'from_params': ['biosample_id', 'biosample_name', 'biosample_synonyms'],
-        'sources': ['IGVF'],
-        'filters': {},
-        'supports_verbose': True,
         'max_limit': 50,
     },
     # GO term annotations
     'go_terms_annotations': {
-        'path': '/api/annotations/go-terms',
+        'client_method': 'go_terms_from_annotations',
+        'path': '/gene-products/go-terms',
         'from_type': 'protein',
         'to_type': 'ontology',
         'from_params': ['query'],  # Can be protein or transcript ID
@@ -425,7 +471,6 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'filters': {
             'name': 'enum',  # 'involved in', 'is located in', 'has the function'
         },
-        'supports_verbose': False,
         'max_limit': 100,
     },
 }
@@ -434,7 +479,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
 # Relationship type to endpoint mapping for higher-level abstractions
 RELATIONSHIP_TYPE_MAPPING = {
     'regulatory': {
-        'gene': ['genes_variants', 'genomic_elements_genes'],
+        'gene': ['genes_variants', 'genes_genomic_elements'],
         'variant': ['variants_genes', 'variants_genomic_elements'],
         'genomic_element': ['genomic_elements_genes'],
     },
@@ -476,6 +521,11 @@ def get_edge_config(endpoint_key: str) -> EdgeEndpointConfig | None:
     return EDGE_ENDPOINTS.get(endpoint_key)
 
 
+def supports_verbose(config: EdgeEndpointConfig) -> bool:
+    """Whether the endpoint's client method accepts the verbose parameter."""
+    return 'verbose' in method_params(config['client_method'])
+
+
 def get_endpoints_for_entity_and_relationship(
     entity_type: EntityType, relationship_type: str
 ) -> list[str]:
@@ -509,16 +559,15 @@ def get_sources_by_category() -> dict[str, list[str]]:
     """Organize sources by category for the list_sources tool."""
     return {
         'variant_annotations': ['dbNSFP', 'ClinGen'],
-        'gene_expression': ['AFGR', 'EBI eQTL Catalogue', 'IGVF'],
-        'regulatory': ['ADASTRA', 'GVATdb', 'SEMVAR', 'ENCODE_SCREEN', 'ENCODE-E2G-DNaseOnly',
-                       'ENCODE-E2G-Full', 'ENCODE-E2G-CRISPR', 'ENCODE_EpiRaction'],
-        'disease': ['Orphanet', 'ClinGen', 'OpenTargets'],
+        'gene_expression': ['AFGR', 'EBI', 'IGVF'],
+        'regulatory': ['ADASTRA', 'GVATdb', 'UKB', 'ENCODE', 'IGVF'],
+        'disease': ['Orphanet', 'ClinGen', 'GenCC', 'OpenTargets'],
         'drugs': ['PharmGKB'],
-        'interactions': ['BioGRID', 'CoXPresdb', 'EBI Complex Portal'],
+        'interactions': ['BioGRID', 'IntAct', 'COXPRESdb', 'EBI Complex Portal'],
         'studies': ['GWAS Catalog', 'OpenTargets'],
         'structure': ['GENCODE'],
         'linkage': ['TopLD'],
-        'motifs': ['HOCOMOCOv11', 'SEMpl'],
+        'motifs': ['HOCOMOCOv11', 'IGVF'],
         'pathways': ['Reactome'],
         'ontology': ['Gene Ontology'],
     }

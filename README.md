@@ -12,9 +12,30 @@ An MCP (Model Context Protocol) server providing LLM-friendly access to the IGVF
 
 ## Installation
 
+The server is published on PyPI as [`igvf-catalog-mcp`](https://pypi.org/project/igvf-catalog-mcp/). Run it without installing anything using [uv](https://docs.astral.sh/uv/):
+
 ```bash
-cd igvf_catalog_mcp
-pip install -e ".[dev]"
+uvx igvf-catalog-mcp
+```
+
+or install it with pip and run the `igvf-catalog-mcp` command:
+
+```bash
+pip install igvf-catalog-mcp
+igvf-catalog-mcp
+```
+
+To use it from an MCP client such as Claude Desktop or Claude Code, register it as a stdio server:
+
+```json
+{
+  "mcpServers": {
+    "igvf-catalog": {
+      "command": "uvx",
+      "args": ["igvf-catalog-mcp"]
+    }
+  }
+}
 ```
 
 ## Usage
@@ -24,14 +45,11 @@ Configure the API URL (optional):
 ```bash
 export IGVF_CATALOG_API_URL=https://api.catalogkg.igvf.org  # default
 # or for development:
+export IGVF_CATALOG_API_URL=https://catalog-api-dev.demo.igvf.org
 export IGVF_CATALOG_API_URL=http://localhost:2023
 ```
 
-Run the MCP server:
-
-```bash
-python -m igvf_catalog_mcp.server
-```
+`/api` is appended to the URL if it is not already there.
 
 ## Tools
 
@@ -101,22 +119,36 @@ Map how a gene is regulated — cis-regulatory elements, eQTL variants driving i
 Map the genetic architecture of a disease — causal genes, shared biological pathways, protein interaction networks, and potential therapeutic targets. Useful for understanding the gene network underlying a trait or condition.
 
 ### `/igvf-catalog-ld-compare`
-Compare linkage disequilibrium structure for a variant across ancestries (EUR, AFR, EAS, SAS, AMR). Useful for assessing PRS portability, identifying ancestry-specific tag SNPs, and understanding population differences in LD.
+Compare linkage disequilibrium structure for a variant across ancestries (EUR, AFR, EAS, SAS). Useful for assessing PRS portability, identifying ancestry-specific tag SNPs, and understanding population differences in LD.
 
 ## Development
 
-Run tests:
+Install from a clone with the development extras and run the linter and tests:
 
 ```bash
+pip install -e ".[dev]"
+ruff check
 pytest
 ```
+
+The tests run offline. `tests/test_contract.py` checks that every API method and parameter the server uses exists in the generated client, so it fails when the catalog API drops or renames something the server relies on.
 
 ## Architecture
 
 The server consists of:
 - **Tools**: 6 MCP tools for genomics queries
-- **Services**: API client, ID parser, region parser
+- **Services**: API client, edge endpoint registry, ID parser, region parser
 - **Resources**: Entity schemas and examples
+
+API calls go through [`igvf-catalog-async-client`](https://github.com/IGVF-DACC/igvf-catalog-async-python-client), the async Python client generated from the IGVF Catalog OpenAPI spec. `services/edge_config.py` maps each relationship to a generated client method.
+
+## Versioning
+
+The MCP server's version always equals the IGVF Catalog version it targets: `igvf-catalog-mcp` X.Y.Z depends on `igvf-catalog-async-client==X.Y.Z`. When the catalog is released, the release job pins the new client version, sets the same version in `src/igvf_catalog_mcp/__init__.py`, and publishes to PyPI.
+
+Fixes to the MCP server between catalog releases are published by hand as `X.Y.Z.postN` (for example `1.3.0.post1`): set the version in `src/igvf_catalog_mcp/__init__.py`, then either publish a GitHub release or run the "Publish to PyPI" workflow with `workflow_dispatch`.
+
+The `dev` branch tracks `igvf-catalog@dev`; its CI installs the async client from the client repo's `dev` branch.
 
 ## License
 

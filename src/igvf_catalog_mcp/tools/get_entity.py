@@ -1,13 +1,12 @@
 """Get entity tool - universal entity lookup with auto-detection."""
 
-from typing import Any, Optional
+from typing import Any
 
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
-from ..services.api_client import IGVFCatalogClient
-from ..services.id_parser import IDParser
+from ..services.api_client import get_client
 from ..services.formatter import add_entity_type, format_error
-
+from ..services.id_parser import IDParser
 
 # Tool definition
 GET_ENTITY_TOOL = Tool(
@@ -59,12 +58,10 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
         normalized_id = IDParser.normalize_identifier(entity_id, entity_type)
 
         # Query the API
-        async with IGVFCatalogClient() as client:
-            entities = await client.get_entity(
-                entity_type=entity_type,
-                param_name=param_name,
-                param_value=normalized_id,
-            )
+        entities = await get_client().call(
+            IDParser.get_client_method(entity_type),
+            **{param_name: normalized_id, 'page': 0},
+        )
 
         # Format response
         if not entities:

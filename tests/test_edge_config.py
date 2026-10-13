@@ -1,20 +1,20 @@
 """Tests for edge configuration system."""
 
-import pytest
 
 from igvf_catalog_mcp.services.edge_config import (
     EDGE_ENDPOINTS,
     RELATIONSHIP_TYPE_MAPPING,
+    get_all_sources,
     get_edge_config,
     get_endpoints_for_entity_and_relationship,
-    get_all_sources,
     get_sources_by_category,
+    supports_verbose,
 )
 
 
 def test_all_endpoints_have_required_fields():
     """Verify all endpoints have required configuration fields."""
-    required_fields = ['path', 'from_type', 'max_limit']
+    required_fields = ['client_method', 'path', 'from_type', 'max_limit']
 
     for endpoint_key, config in EDGE_ENDPOINTS.items():
         for field in required_fields:
@@ -25,6 +25,12 @@ def test_endpoint_paths_are_unique():
     """Verify all endpoint paths are unique."""
     paths = [config['path'] for config in EDGE_ENDPOINTS.values()]
     assert len(paths) == len(set(paths)), 'Duplicate endpoint paths found'
+
+
+def test_client_methods_are_unique():
+    """Verify all endpoint client methods are unique."""
+    methods = [config['client_method'] for config in EDGE_ENDPOINTS.values()]
+    assert len(methods) == len(set(methods)), 'Duplicate client methods found'
 
 
 def test_bidirectional_endpoints_exist():
@@ -68,7 +74,8 @@ def test_get_existing_endpoint():
     """Test retrieving configuration for an existing endpoint."""
     config = get_edge_config('variants_genes')
     assert config is not None
-    assert config['path'] == '/api/variants/genes'
+    assert config['client_method'] == 'genes_from_variants'
+    assert config['path'] == '/variants/genes'
     assert config['from_type'] == 'variant'
     assert config['to_type'] == 'gene'
 
@@ -83,10 +90,11 @@ def test_variants_genes_has_correct_sources():
     """Test variants_genes endpoint has correct source values."""
     config = get_edge_config('variants_genes')
     assert 'AFGR' in config['sources']
-    assert 'EBI eQTL Catalogue' in config['sources']
+    assert 'EBI' in config['sources']
     assert 'IGVF' in config['sources']
-    # Old incorrect value should not be present
+    # Old incorrect values should not be present
     assert 'GTEx' not in config.get('sources', [])
+    assert 'EBI eQTL Catalogue' not in config.get('sources', [])
 
 
 def test_variants_proteins_has_correct_sources():
@@ -95,7 +103,7 @@ def test_variants_proteins_has_correct_sources():
     assert 'ADASTRA' in config['sources']
     assert 'GVATdb' in config['sources']
     assert 'UKB' in config['sources']
-    assert 'SEMVAR' in config['sources']
+    assert 'SEMVAR' in config['methods']
 
 
 def test_variants_phenotypes_has_correct_methods():
@@ -109,7 +117,25 @@ def test_variants_phenotypes_has_correct_methods():
 def test_variants_variants_has_correct_path():
     """Test variants_variants endpoint uses the correct LD API path."""
     config = get_edge_config('variants_variants')
-    assert config['path'] == '/api/variants/variant-ld'
+    assert config['client_method'] == 'variants_from_variant_id'
+    assert config['path'] == '/variants/variant-ld'
+    assert 'chr' not in config['from_params']
+    assert 'position' not in config['from_params']
+
+
+def test_go_terms_uses_gene_products_path():
+    """Test GO term annotations use the gene-products endpoint."""
+    config = get_edge_config('go_terms_annotations')
+    assert config['client_method'] == 'go_terms_from_annotations'
+    assert config['path'] == '/gene-products/go-terms'
+    assert config['from_params'] == ['query']
+
+
+def test_supports_verbose_is_derived_from_client():
+    """Test verbose support comes from the generated method signature."""
+    assert supports_verbose(get_edge_config('variants_genes'))
+    assert not supports_verbose(get_edge_config('variants_coding_variants'))
+    assert not supports_verbose(get_edge_config('go_terms_annotations'))
 
 
 def test_all_relationship_types_defined():
@@ -144,7 +170,7 @@ def test_get_endpoints_for_gene_regulatory():
     endpoints = get_endpoints_for_entity_and_relationship(
         'gene', 'regulatory')
     assert 'genes_variants' in endpoints
-    assert 'genomic_elements_genes' in endpoints
+    assert 'genes_genomic_elements' in endpoints
 
 
 def test_get_endpoints_for_variant_ld():
@@ -181,7 +207,7 @@ def test_get_all_sources_returns_unique_sources():
     assert len(sources) > 0
 
     # Check for known sources
-    expected_sources = {'AFGR', 'EBI eQTL Catalogue',
+    expected_sources = {'AFGR', 'EBI',
                         'ADASTRA', 'GVATdb', 'PharmGKB', 'Orphanet'}
     for source in expected_sources:
         assert source in sources, f'Expected source {source} not found'
@@ -212,7 +238,7 @@ def test_gene_expression_category_sources():
     gene_exp_sources = sources_by_cat['gene_expression']
 
     assert 'AFGR' in gene_exp_sources
-    assert 'EBI eQTL Catalogue' in gene_exp_sources
+    assert 'EBI' in gene_exp_sources
     assert 'IGVF' in gene_exp_sources
 
 
@@ -223,7 +249,7 @@ def test_regulatory_category_sources():
 
     assert 'ADASTRA' in reg_sources
     assert 'GVATdb' in reg_sources
-    assert 'SEMVAR' in reg_sources
+    assert 'ENCODE' in reg_sources
 
 
 def test_variants_genes_filters():
@@ -231,8 +257,9 @@ def test_variants_genes_filters():
     config = get_edge_config('variants_genes')
     filters = config.get('filters', {})
 
-    assert 'log10pvalue' in filters
-    assert filters['log10pvalue'] == 'range'
+    assert 'neg_log10_pvalue' in filters
+    assert filters['neg_log10_pvalue'] == 'range'
+    assert 'log10pvalue' not in filters
     assert 'effect_size' in filters
     assert filters['effect_size'] == 'range'
     assert 'biological_context' in filters
@@ -259,6 +286,7 @@ def test_variants_drugs_filters():
 
     assert 'pmid' in filters
     assert 'phenotype_categories' in filters
+    assert 'GENCODE_category' not in filters
 
 
 def test_variants_genes_from_params():
@@ -281,7 +309,8 @@ def test_genes_variants_from_params():
     assert 'gene_id' in from_params
     assert 'gene_name' in from_params
     assert 'hgnc_id' in from_params
-    assert 'alias' in from_params
+    assert 'synonym' in from_params
+    assert 'alias' not in from_params
 
 
 def test_proteins_variants_from_params():
@@ -291,5 +320,6 @@ def test_proteins_variants_from_params():
 
     assert 'protein_id' in from_params
     assert 'protein_name' in from_params
-    assert 'full_name' in from_params
+    assert 'uniprot_full_name' in from_params
+    assert 'full_name' not in from_params
     assert 'dbxrefs' in from_params

@@ -1,6 +1,10 @@
 """Pytest configuration and fixtures."""
 
 import pytest
+from igvf_catalog_async_client import ApiClient
+
+from igvf_catalog_mcp.services.api_client import close_client
+from tests.fakes import FakeCatalog
 
 
 @pytest.fixture
@@ -49,3 +53,18 @@ def sample_region():
         'start': 41000000,
         'end': 42000000,
     }
+
+
+@pytest.fixture
+async def fake_catalog(monkeypatch):
+    """Patch the generated client's transport so tools run end-to-end without network access."""
+    catalog = FakeCatalog()
+
+    async def call_api(self, *args, **kwargs):
+        return await catalog.call_api(self, *args, **kwargs)
+
+    monkeypatch.setattr(ApiClient, 'call_api', call_api)
+    monkeypatch.setenv('IGVF_CATALOG_API_URL', 'http://catalog.test')
+    await close_client()
+    yield catalog
+    await close_client()

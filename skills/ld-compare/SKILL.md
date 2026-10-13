@@ -1,6 +1,6 @@
 ---
 name: igvf-catalog-ld-compare
-description: Compare LD structure across ancestries (EUR, AFR, EAS, SAS, AMR) for a variant. Use when someone asks about cross-population LD, PRS portability, ancestry-specific tag SNPs, or population differences in linkage disequilibrium.
+description: Compare LD structure across ancestries (EUR, AFR, EAS, SAS) for a variant. Use when someone asks about cross-population LD, PRS portability, ancestry-specific tag SNPs, or population differences in linkage disequilibrium.
 argument-hint: <variant_id>
 ---
 
@@ -16,13 +16,12 @@ Compare LD structure across all five superpopulations for variant `$ARGUMENTS`.
 Call `igvf_catalog_resolve_id(id=$ARGUMENTS)` to normalize the identifier.
 
 ### Step 2: Query All Populations (parallel)
-Run all five in parallel:
+Run all four in parallel:
 
 - `igvf_catalog_find_ld(variant_id, ancestry="EUR", r2_threshold=0.5, limit=100)`
 - `igvf_catalog_find_ld(variant_id, ancestry="AFR", r2_threshold=0.5, limit=100)`
 - `igvf_catalog_find_ld(variant_id, ancestry="EAS", r2_threshold=0.5, limit=100)`
 - `igvf_catalog_find_ld(variant_id, ancestry="SAS", r2_threshold=0.5, limit=100)`
-- `igvf_catalog_find_ld(variant_id, ancestry="AMR", r2_threshold=0.5, limit=100)`
 
 ### Step 3: Analyze
 
@@ -44,15 +43,15 @@ Identifier, coordinates, alleles.
 |-----------|--------|--------|------------|-----------------|
 
 **Universal Proxies**
-Variants in strong LD across all/most (4+) populations — reliable cross-ancestry tags.
+Variants in strong LD across all/most (3+) populations — reliable cross-ancestry tags.
 
 **Population-Specific Proxies**
 Variants in strong LD in 1-2 populations only. Show r2 across all ancestries.
 
 **Cross-Population Matrix** (top variants)
 
-| Variant | EUR | AFR | EAS | SAS | AMR |
-|---------|-----|-----|-----|-----|-----|
+| Variant | EUR | AFR | EAS | SAS |
+|---------|-----|-----|-----|-----|
 
 **Interpretation**
 3-5 sentences: block size comparison, AFR pattern, universal proxy availability, PRS portability implications, fine-mapping utility of AFR data.

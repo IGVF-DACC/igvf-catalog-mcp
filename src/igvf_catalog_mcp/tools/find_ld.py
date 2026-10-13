@@ -3,12 +3,12 @@
 import json
 from typing import Any
 
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
-from ..services.api_client import IGVFCatalogClient
+from ..services.api_client import get_client
+from ..services.edge_config import EDGE_ENDPOINTS
+from ..services.formatter import build_pagination_metadata, format_error
 from ..services.id_parser import IDParser
-from ..services.formatter import format_error, build_pagination_metadata
-
 
 # Tool definition
 FIND_LD_TOOL = Tool(
@@ -18,7 +18,8 @@ FIND_LD_TOOL = Tool(
         'LD measures the non-random association of alleles at different loci. '
         'Returns variants with their r² and D\' statistics across different populations. '
         'Useful for fine-mapping GWAS signals and identifying proxy SNPs. '
-        'Supports pagination — check _pagination.has_more in the response and use the page parameter to retrieve additional results.'
+        'Supports pagination — check _pagination.has_more in the response and use the page parameter '
+        'to retrieve additional results.'
     ),
     inputSchema={
         'type': 'object',
@@ -43,7 +44,7 @@ FIND_LD_TOOL = Tool(
             'ancestry': {
                 'type': 'string',
                 'description': 'Population ancestry for LD calculation',
-                'enum': ['AFR', 'AMR', 'EAS', 'EUR', 'SAS'],
+                'enum': ['AFR', 'EAS', 'EUR', 'SAS'],
                 'default': 'EUR',
             },
             'limit': {
@@ -121,10 +122,7 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
             params['verbose'] = 'true'
 
         # Query the API
-        async with IGVFCatalogClient() as client:
-            ld_results = await client.find_associations(
-                endpoint='/api/variants/variant-ld', params=params, verbose=verbose
-            )
+        ld_results = await get_client().call(EDGE_ENDPOINTS['variants_variants']['client_method'], **params)
 
         # Process results
         if not ld_results:

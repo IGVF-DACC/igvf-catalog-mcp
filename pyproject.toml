@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "igvf-catalog-mcp"
-version = "0.1.0"
+dynamic = ["version"]
 description = "MCP server for IGVF Catalog genomics knowledge graph"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,9 +13,8 @@ authors = [
     {name = "IGVF DACC"}
 ]
 dependencies = [
-    "mcp>=1.0.0",
-    "httpx>=0.27.0",
-    "pydantic>=2.0.0",
+    "mcp>=1.0.0,<2",
+    "igvf-catalog-async-client @ git+https://github.com/IGVF-DACC/igvf-catalog-async-python-client@dev",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +23,19 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "ruff>=0.4.0",
 ]
+
+[project.scripts]
+igvf-catalog-mcp = "igvf_catalog_mcp.server:run"
+
+[project.urls]
+Homepage = "https://github.com/IGVF-DACC/igvf-catalog-mcp"
+Repository = "https://github.com/IGVF-DACC/igvf-catalog-mcp"
+
+[tool.hatch.version]
+path = "src/igvf_catalog_mcp/__init__.py"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/igvf_catalog_mcp"]

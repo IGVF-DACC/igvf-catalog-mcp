@@ -1,19 +1,19 @@
 """Find associations tool - discover relationships between entities."""
 
 import json
+import math
 from typing import Any
 
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
-from ..services.api_client import IGVFCatalogClient
-from ..services.id_parser import IDParser
-from ..services.formatter import format_error, build_pagination_metadata
+from ..services.api_client import get_client, method_params
 from ..services.edge_config import (
-    get_endpoints_for_entity_and_relationship,
-    get_edge_config,
     RELATIONSHIP_TYPE_MAPPING,
+    get_edge_config,
+    get_endpoints_for_entity_and_relationship,
 )
-
+from ..services.formatter import build_pagination_metadata, format_error
+from ..services.id_parser import IDParser
 
 # Tool definition
 FIND_ASSOCIATIONS_TOOL = Tool(
@@ -25,7 +25,8 @@ FIND_ASSOCIATIONS_TOOL = Tool(
         "'physical' (protein-protein), 'functional' (pathways, GO terms), 'pharmacological' (drug-variant), "
         "'ld' (linkage disequilibrium), 'coding' (coding variant effects), 'transcription' (gene-transcript-protein). "
         'Returns detailed associations with p-values, effect sizes, and sources. '
-        'Supports pagination — check _pagination.has_more in the response and use the page parameter to retrieve additional results.'
+        'Supports pagination — check _pagination.has_more in the response and use the page parameter '
+        'to retrieve additional results.'
     ),
     inputSchema={
         'type': 'object',
@@ -77,6 +78,32 @@ FIND_ASSOCIATIONS_TOOL = Tool(
 )
 
 
+# Edge parameter names to try when an endpoint does not accept the node lookup parameter
+EDGE_PARAM_ALIASES: dict[str, list[str]] = {
+    'name': ['gene_name'],
+    'term_id': ['phenotype_id', 'disease_id'],
+    'protein_id': ['query'],
+}
+
+
+def resolve_edge_param(param_name: str, edge_config: dict[str, Any]) -> str | None:
+    """
+    Map an IDParser parameter name to the parameter an edge endpoint accepts.
+
+    Args:
+        param_name: Parameter name from IDParser (e.g., "name", "rsid", "term_id")
+        edge_config: The edge endpoint configuration
+
+    Returns:
+        The endpoint's parameter name, or None if the identifier type is not supported
+    """
+    from_params = edge_config.get('from_params', [])
+    for candidate in [param_name, *EDGE_PARAM_ALIASES.get(param_name, [])]:
+        if candidate in from_params:
+            return candidate
+    return None
+
+
 def build_query_params(
     entity_id: str,
     param_name: str,
@@ -88,6 +115,9 @@ def build_query_params(
 ) -> dict[str, Any]:
     """
     Build query parameters for an edge endpoint based on its configuration.
+
+    Parameter names are the API's query parameter names, which are also the
+    keyword arguments of the generated client method.
 
     Args:
         entity_id: The normalized entity identifier
@@ -101,6 +131,7 @@ def build_query_params(
     Returns:
         Dictionary of query parameters
     """
+    accepted_params = method_params(edge_config['client_method'])
     params = {
         param_name: entity_id,
         'limit': min(limit, edge_config.get('max_limit', 500)),
@@ -108,55 +139,41 @@ def build_query_params(
     }
 
     # Add verbose mode if supported
-    if edge_config.get('supports_verbose', False) and verbose:
+    if verbose and 'verbose' in accepted_params:
         params['verbose'] = 'true'
 
     # Process filters based on endpoint configuration
-    if 'filters' in edge_config:
-        supported_filters = edge_config['filters']
+    supported_filters = edge_config.get('filters', {})
 
-        for filter_name, filter_value in user_filters.items():
-            if filter_name not in supported_filters:
-                continue
+    for filter_name, filter_value in user_filters.items():
+        if filter_name == 'p_value':
+            # User provides max p-value, API expects min -log10(p-value)
+            if 'neg_log10_pvalue' in supported_filters and filter_value > 0:
+                params['neg_log10_pvalue'] = f'gte:{-math.log10(filter_value):.2f}'
+            continue
 
-            filter_type = supported_filters[filter_name]
+        if filter_name not in supported_filters:
+            continue
 
-            if filter_type == 'range':
-                # Range filters need special formatting for the API
-                if filter_name == 'p_value' and 'log10pvalue' in supported_filters:
-                    # Convert p-value to -log10 format
-                    # User provides max p-value, API expects min -log10(p-value)
-                    import math
-                    if filter_value > 0:
-                        min_log10 = -math.log10(filter_value)
-                        params['log10pvalue'] = f'gte:{min_log10:.2f}'
-                elif filter_name in ['r2', 'd_prime', 'z_score']:
-                    # These are typically min thresholds
-                    params[filter_name] = f'gte:{filter_value}'
-                else:
-                    # Generic range filter
-                    params[filter_name] = filter_value
-            elif filter_type in ['string', 'enum']:
-                # Direct string/enum filters
-                params[filter_name] = filter_value
+        filter_type = supported_filters[filter_name]
 
-    # Validate and add source filter
-    if 'source' in user_filters and 'sources' in edge_config:
-        source = user_filters['source']
-        if source in edge_config['sources']:
-            params['source'] = source
+        if filter_type == 'range':
+            if filter_name in ['r2', 'd_prime', 'z_score']:
+                # These are typically min thresholds
+                params[filter_name] = f'gte:{filter_value}'
+            else:
+                # Generic range filter, either a plain value or an operator string like "gte:0.5"
+                params[filter_name] = str(filter_value)
+        elif filter_type in ['string', 'enum']:
+            # Direct string/enum filters
+            params[filter_name] = filter_value
 
-    # Validate and add method filter
-    if 'method' in user_filters and 'methods' in edge_config:
-        method = user_filters['method']
-        if method in edge_config['methods']:
-            params['method'] = method
-
-    # Validate and add label filter
-    if 'label' in user_filters and 'labels' in edge_config:
-        label = user_filters['label']
-        if label in edge_config['labels']:
-            params['label'] = label
+    # Validate and add source, method and label filters
+    for filter_name, allowed_key in [('source', 'sources'), ('method', 'methods'), ('label', 'labels')]:
+        if filter_name not in user_filters or filter_name not in accepted_params:
+            continue
+        if user_filters[filter_name] in edge_config.get(allowed_key, []):
+            params[filter_name] = user_filters[filter_name]
 
     return params
 
@@ -216,70 +233,61 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         all_associations = []
         query_metadata = []
 
-        async with IGVFCatalogClient() as client:
-            for endpoint_key in endpoint_keys:
-                edge_config = get_edge_config(endpoint_key)
-                if not edge_config:
-                    continue
+        client = get_client()
+        for endpoint_key in endpoint_keys:
+            edge_config = get_edge_config(endpoint_key)
+            if not edge_config:
+                continue
 
-                # Determine the correct parameter name for this endpoint
-                # The IDParser gives us a generic param_name, but each endpoint may expect different names
-                endpoint_param_name = param_name
-                if 'from_params' in edge_config:
-                    # Check if our param_name is in the allowed list, otherwise use the first one
-                    if param_name not in edge_config['from_params']:
-                        # Map common parameter names to endpoint-specific ones
-                        param_mapping = {
-                            'gene_name': 'gene_name',
-                            'gene_id': 'gene_id',
-                            'protein_id': 'protein_id',
-                            'variant_id': 'variant_id',
-                            'rsid': 'rsid',
-                            'spdi': 'spdi',
-                            'hgvs': 'hgvs',
-                            'ca_id': 'ca_id',
-                        }
-                        endpoint_param_name = param_mapping.get(
-                            param_name, edge_config['from_params'][0])
+            # The IDParser gives us the node lookup parameter, but each endpoint may expect a different name
+            endpoint_param_name = resolve_edge_param(param_name, edge_config)
+            if endpoint_param_name is None:
+                query_metadata.append(
+                    {
+                        'endpoint': endpoint_key,
+                        'path': edge_config['path'],
+                        'error': f"Identifier type '{param_name}' is not supported by this endpoint. "
+                        f"Supported: {', '.join(edge_config.get('from_params', []))}",
+                    }
+                )
+                continue
 
-                # Build query parameters
-                try:
-                    params = build_query_params(
-                        normalized_id, endpoint_param_name, edge_config, filters, limit, verbose, page
-                    )
+            # Build query parameters
+            try:
+                params = build_query_params(
+                    normalized_id, endpoint_param_name, edge_config, filters, limit, verbose, page
+                )
 
-                    # Query the endpoint
-                    associations = await client.find_associations(
-                        endpoint=edge_config['path'], params=params, verbose=verbose
-                    )
+                # Query the endpoint
+                associations = await client.call(edge_config['client_method'], **params)
 
-                    # Add metadata to each association
-                    for assoc in associations:
-                        assoc['_endpoint'] = endpoint_key
-                        assoc['_endpoint_path'] = edge_config['path']
+                # Add metadata to each association
+                for assoc in associations:
+                    assoc['_endpoint'] = endpoint_key
+                    assoc['_endpoint_path'] = edge_config['path']
 
-                    all_associations.extend(associations)
+                all_associations.extend(associations)
 
-                    effective_limit = min(limit, edge_config.get('max_limit', 500))
-                    query_metadata.append(
-                        {
-                            'endpoint': endpoint_key,
-                            'path': edge_config['path'],
-                            'results_count': len(associations),
-                            '_pagination': build_pagination_metadata(associations, page, effective_limit),
-                            'params_used': {k: v for k, v in params.items() if k not in ['page']},
-                        }
-                    )
+                effective_limit = min(limit, edge_config.get('max_limit', 500))
+                query_metadata.append(
+                    {
+                        'endpoint': endpoint_key,
+                        'path': edge_config['path'],
+                        'results_count': len(associations),
+                        '_pagination': build_pagination_metadata(associations, page, effective_limit),
+                        'params_used': {k: v for k, v in params.items() if k not in ['page']},
+                    }
+                )
 
-                except Exception as e:
-                    # Log error but continue with other endpoints
-                    query_metadata.append(
-                        {
-                            'endpoint': endpoint_key,
-                            'path': edge_config['path'],
-                            'error': str(e),
-                        }
-                    )
+            except Exception as e:
+                # Log error but continue with other endpoints
+                query_metadata.append(
+                    {
+                        'endpoint': endpoint_key,
+                        'path': edge_config['path'],
+                        'error': str(e),
+                    }
+                )
 
         # Format response
         any_has_more = any(

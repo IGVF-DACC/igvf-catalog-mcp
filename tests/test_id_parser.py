@@ -1,6 +1,7 @@
 """Tests for ID parser."""
 
 import pytest
+
 from igvf_catalog_mcp.services.id_parser import IDParser
 
 
@@ -16,7 +17,7 @@ def test_detect_gene_symbol():
     """Test detection of gene symbols."""
     entity_type, param_name = IDParser.detect_entity_type('BRCA1')
     assert entity_type == 'gene'
-    assert param_name == 'gene_name'
+    assert param_name == 'name'
 
 
 def test_detect_gene_hgnc():
@@ -111,7 +112,7 @@ def test_detect_pathway():
     """Test detection of pathway IDs."""
     entity_type, param_name = IDParser.detect_entity_type('R-HSA-164843')
     assert entity_type == 'pathway'
-    assert param_name == 'pathway_id'
+    assert param_name == 'id'
 
 
 def test_detect_with_hint():
@@ -120,7 +121,7 @@ def test_detect_with_hint():
     entity_type, param_name = IDParser.detect_entity_type(
         'TP53', hint='gene')
     assert entity_type == 'gene'
-    assert param_name == 'gene_name'
+    assert param_name == 'name'
 
 
 def test_invalid_identifier():
@@ -141,8 +142,10 @@ def test_normalize_ontology_separator():
     assert normalized == 'MONDO_0008199'
 
 
-def test_get_api_endpoint():
-    """Test API endpoint retrieval."""
-    assert IDParser.get_api_endpoint('gene') == '/api/genes'
-    assert IDParser.get_api_endpoint('variant') == '/api/variants'
-    assert IDParser.get_api_endpoint('protein') == '/api/proteins'
+def test_get_client_method():
+    """Test client method retrieval."""
+    assert IDParser.get_client_method('gene') == 'genes'
+    assert IDParser.get_client_method('variant') == 'variants'
+    assert IDParser.get_client_method('protein') == 'proteins'
+    assert IDParser.get_client_method('ontology') == 'ontology_term'
+    assert IDParser.get_client_method('pathway') == 'pathways'

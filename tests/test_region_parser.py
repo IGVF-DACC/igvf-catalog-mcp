@@ -1,7 +1,8 @@
 """Tests for region parser."""
 
 import pytest
-from igvf_catalog_mcp.services.region_parser import RegionParser, GenomicRegion
+
+from igvf_catalog_mcp.services.region_parser import GenomicRegion, RegionParser
 
 
 def test_parse_basic_region():

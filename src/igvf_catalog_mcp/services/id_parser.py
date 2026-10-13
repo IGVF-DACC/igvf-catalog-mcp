@@ -1,7 +1,7 @@
 """Entity ID parser with auto-detection of entity types."""
 
 import re
-from typing import Literal, Optional
+from typing import Literal
 
 EntityType = Literal[
     'gene',
@@ -14,6 +14,19 @@ EntityType = Literal[
     'study',
     'pathway',
 ]
+
+# Generated client method used to look up each entity type
+ENTITY_METHODS: dict[str, str] = {
+    'gene': 'genes',
+    'transcript': 'transcripts',
+    'protein': 'proteins',
+    'variant': 'variants',
+    'ontology': 'ontology_term',
+    'drug': 'drugs',
+    'complex': 'complexes',
+    'study': 'studies',
+    'pathway': 'pathways',
+}
 
 
 class IDParser:
@@ -53,15 +66,14 @@ class IDParser:
         # Studies
         (r'^GCST\d+$', 'study', 'study_id'),
         # Pathways
-        (r'^R-[A-Z]{3}-\d+$', 'pathway', 'pathway_id'),
+        (r'^R-[A-Z]{3}-\d+$', 'pathway', 'id'),
         # Gene symbols (must be last, as it's most ambiguous)
-        # Note: Using "gene_name" instead of "name" for compatibility with edge endpoints
-        (r'^[A-Z][A-Z0-9]{1,9}$', 'gene', 'gene_name'),
+        (r'^[A-Z][A-Z0-9]{1,9}$', 'gene', 'name'),
     ]
 
     @classmethod
     def detect_entity_type(
-        cls, identifier: str, hint: Optional[str] = None
+        cls, identifier: str, hint: str | None = None
     ) -> tuple[EntityType, str]:
         """
         Detect entity type from an identifier string.
@@ -71,7 +83,8 @@ class IDParser:
             hint: Optional hint about the entity type
 
         Returns:
-            Tuple of (entity_type, parameter_name) for API queries
+            Tuple of (entity_type, parameter_name), where parameter_name is the keyword
+            argument of the entity's lookup method (see get_client_method)
 
         Raises:
             ValueError: If the identifier format is not recognized
@@ -98,28 +111,17 @@ class IDParser:
         )
 
     @classmethod
-    def get_api_endpoint(cls, entity_type: EntityType) -> str:
+    def get_client_method(cls, entity_type: EntityType) -> str:
         """
-        Get the API endpoint path for an entity type.
+        Get the generated client method used to look up an entity type.
 
         Args:
             entity_type: The type of entity
 
         Returns:
-            API endpoint path (e.g., "/genes", "/variants")
+            AsyncIgvfCatalogApi method name (e.g., "genes", "variants")
         """
-        endpoint_map = {
-            'gene': '/api/genes',
-            'transcript': '/api/transcripts',
-            'protein': '/api/proteins',
-            'variant': '/api/variants',
-            'ontology': '/api/ontology-terms',
-            'drug': '/api/drugs',
-            'complex': '/api/complexes',
-            'study': '/api/studies',
-            'pathway': '/api/pathways',
-        }
-        return endpoint_map[entity_type]
+        return ENTITY_METHODS[entity_type]
 
     @classmethod
     def normalize_identifier(cls, identifier: str, entity_type: EntityType) -> str:
