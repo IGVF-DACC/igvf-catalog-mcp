@@ -260,7 +260,8 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'path': '/proteins/complexes',
         'from_type': 'protein',
         'to_type': 'complex',
-        # The API rejects dbxrefs here although the spec lists it
+        # dbxrefs only narrows a query here; on its own the API requires protein_id, name, uniprot_name or
+        # uniprot_full_name, so a bare UniProt accession is resolved to its UniProt name instead
         'from_params': [p for p in PROTEIN_PARAMS if p != 'dbxrefs'],
         'sources': ['EBI Complex Portal'],
         'filters': {},
