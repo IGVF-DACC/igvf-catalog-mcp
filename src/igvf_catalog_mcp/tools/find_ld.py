@@ -120,8 +120,8 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
         # Query the API
         ld_results = await get_client().call(EDGE_ENDPOINTS['variants_variants']['client_method'], **params)
 
-        # Process results
-        if not ld_results:
+        # Process results; an empty later page keeps the normal response shape
+        if not ld_results and page == 0:
             return [
                 TextContent(
                     type='text',

@@ -184,9 +184,34 @@ async def test_get_entity_capped_limit_in_pagination(fake_catalog):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CPX-9', 'limit': 50}))
 
-    assert data['_pagination']['limit'] == 25
-    assert data['_pagination']['limit_capped_to'] == 25
+    assert data['_pagination']['limit'] == 50
+    assert data['_pagination']['page_size'] == 25
+    assert 'limit_capped_to' not in data['_pagination']
     assert data['_pagination']['has_more'] is False
+    assert data['note'] == 'Complex lookups have a fixed page size of 25, so limit does not apply.'
+
+
+async def test_get_entity_fixed_page_size_is_not_a_cap(fake_catalog):
+    fake_catalog.add('/complexes', [{'_id': f'CPX-{i}'} for i in range(6)])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'cohesin', 'hint': 'complex', 'limit': 5}))
+
+    assert len(data['entities']) == 6
+    assert data['_pagination']['limit'] == 5
+    assert data['_pagination']['page_size'] == 25
+    assert 'limit_capped_to' not in data['_pagination']
+    assert fake_catalog.params_for('/complexes') == [{'name': 'cohesin', 'page': '0'}]
+
+
+async def test_get_entity_reports_cap_below_request(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP00000264010', 'name': 'CTCF'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'limit': 200}))
+    assert data['_pagination']['limit_capped_to'] == 50
+    assert 'note' not in data
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'limit': 5}))
+    assert 'limit_capped_to' not in data['_pagination']
 
 
 async def test_get_entity_empty_later_page(fake_catalog):
@@ -555,6 +580,10 @@ async def test_find_associations_reports_capped_limit(fake_catalog):
 
     metadata = {m['endpoint']: m for m in data['query_metadata']}
     assert metadata['genes_genes']['limit_capped_to'] == 100
+    assert data['_pagination']['limit'] == 200
+    assert data['_pagination']['limit_capped_to'] == {
+        'genes_diseases': 25, 'genes_genes': 100, 'genes_transcripts': 100
+    }
     assert metadata['genes_genes']['params_used']['limit'] == 100
     assert 'limit_capped_to' not in metadata['genes_variants']
     assert fake_catalog.params_for('/genes/genes') == [{'gene_id': 'ENSG00000012048', 'page': '0', 'limit': '100'}]
@@ -761,6 +790,23 @@ async def test_find_ld_no_results(fake_catalog):
     assert data['num_ld_variants'] == 0
     assert data['param_used'] == 'spdi'
     assert 'No variants in LD found' in data['message']
+
+
+async def test_find_ld_empty_later_page(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_find_ld', {'variant_id': 'rs58542926', 'page': 1}))
+
+    assert data['ld_variants'] == []
+    assert data['num_ld_variants'] == 0
+    assert data['_pagination'] == {'current_page': 1, 'limit': 100, 'results_returned': 0, 'has_more': False}
+    assert 'message' not in data
+
+
+async def test_find_associations_no_capped_limit(fake_catalog):
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'ENSG00000012048', 'relationship': 'genetic'})
+    )
+
+    assert 'limit_capped_to' not in data['_pagination']
 
 
 async def test_find_ld_rejects_non_variant(fake_catalog):

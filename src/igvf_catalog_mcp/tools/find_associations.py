@@ -406,6 +406,9 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             'results_returned': len(all_associations),
             'has_more': any_has_more,
         }
+        capped = {m['endpoint']: m['limit_capped_to'] for m in query_metadata if 'limit_capped_to' in m}
+        if capped:
+            top_pagination['limit_capped_to'] = capped
         if any_has_more:
             top_pagination['next_page'] = page + 1
             top_pagination['note'] = f'More results available. Call again with page={page + 1} to continue.'

@@ -42,7 +42,8 @@ GET_ENTITY_TOOL = Tool(
                 'type': 'integer',
                 'description': (
                     'Maximum number of results (default: 25). Each entity type has a maximum page size; '
-                    '_pagination reports limit_capped_to when it applies.'
+                    '_pagination reports limit_capped_to when it applies. Complexes and studies have a fixed page '
+                    'size of 25, reported as page_size.'
                 ),
                 'minimum': 1,
                 'default': 25,
@@ -78,6 +79,7 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
         # Detect entity type and normalize the identifier
         entity_type, param_name, normalized_id, matches, near_matches = await IDParser.identify(entity_id, hint)
 
+        fixed_page_size = False
         if matches is not None:
             # Gene symbols were looked up in full to keep only exact matches, so they are paged here
             if not matches:
@@ -95,6 +97,7 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
                 query['limit'] = effective_limit
             else:
                 effective_limit = API_PAGE_SIZE
+                fixed_page_size = True
             entities = await get_client().call(method_name, **query)
             has_more = None
 
@@ -108,7 +111,10 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
             ]
 
         pagination = build_pagination_metadata(entities, page, effective_limit, has_more)
-        if limit != effective_limit:
+        if fixed_page_size:
+            pagination['limit'] = limit
+            pagination['page_size'] = API_PAGE_SIZE
+        elif limit > effective_limit:
             pagination['limit_capped_to'] = effective_limit
 
         response_data = {
@@ -116,6 +122,11 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
             'entity_type': entity_type,
             'entities': [add_entity_type(entity, entity_type) for entity in entities],
         }
+        if fixed_page_size:
+            response_data['note'] = (
+                f'{entity_type.capitalize()} lookups have a fixed page size of {API_PAGE_SIZE}, '
+                'so limit does not apply.'
+            )
         response_text = json.dumps(response_data, indent=2)
 
         return [
