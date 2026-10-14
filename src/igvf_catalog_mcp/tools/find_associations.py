@@ -60,7 +60,8 @@ FIND_ASSOCIATIONS_TOOL = Tool(
                 'type': 'integer',
                 'description': (
                     'Maximum results per data source (endpoint); with several endpoints, '
-                    'up to limit × endpoints rows (default: 25)'
+                    'up to limit × endpoints rows (default: 25). Some endpoints have a lower maximum page size '
+                    '(see max_limit in list_sources); query_metadata reports limit_capped_to when it applies.'
                 ),
                 'minimum': 1,
                 'maximum': 500,
@@ -295,6 +296,8 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     '_pagination': build_pagination_metadata(associations, page, effective_limit, has_more),
                     'params_used': {k: v for k, v in params.items() if k not in ['page']},
                 }
+                if limit > effective_limit:
+                    metadata['limit_capped_to'] = effective_limit
                 if resolve_rsid:
                     metadata['resolved_from'] = 'rsid'
                     metadata['params_used']['spdi'] = lookup_ids

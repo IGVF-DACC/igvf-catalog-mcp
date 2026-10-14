@@ -234,6 +234,21 @@ async def test_find_associations_rsid_resolved_to_spdi_for_coding(fake_catalog):
     assert 'error' not in metadata
 
 
+async def test_find_associations_reports_capped_limit(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'BRCA1', 'relationship': 'all', 'limit': 200},
+        )
+    )
+
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert metadata['genes_genes']['limit_capped_to'] == 100
+    assert metadata['genes_genes']['params_used']['limit'] == 100
+    assert 'limit_capped_to' not in metadata['genes_variants']
+    assert fake_catalog.params_for('/genes/genes') == [{'gene_name': 'BRCA1', 'page': '0', 'limit': '100'}]
+
+
 async def test_find_associations_ontology_term(fake_catalog):
     fake_catalog.add('/phenotypes/variants', [{'variant': 'variants/x'}])
 
