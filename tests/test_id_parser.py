@@ -66,10 +66,20 @@ def test_detect_protein_ensembl():
 
 
 def test_detect_protein_uniprot():
-    """Test detection of UniProt IDs."""
-    entity_type, param_name = IDParser.detect_entity_type('P49711')
+    """Bare UniProt accessions are looked up as cross-references, isoforms as protein IDs."""
+    assert IDParser.detect_entity_type('P49711') == ('protein', 'dbxrefs')
+    assert IDParser.detect_entity_type('P49711-1') == ('protein', 'protein_id')
+
+
+@pytest.mark.parametrize('symbol', ['TCF7L2', 'PNPLA3', 'VKORC1', 'CYP2C9', 'BRCA1', 'TP53', 'HNF1A'])
+def test_gene_symbols_are_not_uniprot_accessions(symbol):
+    assert IDParser.detect_entity_type(symbol) == ('gene', 'name')
+
+
+@pytest.mark.parametrize('accession', ['P49711', 'P49711-1', 'Q9Y6K9', 'A0A024RBG1'])
+def test_detect_uniprot_accessions(accession):
+    entity_type, _ = IDParser.detect_entity_type(accession)
     assert entity_type == 'protein'
-    assert param_name == 'protein_id'
 
 
 def test_detect_transcript():
@@ -134,6 +144,10 @@ def test_normalize_gene_symbol():
     """Test normalization of gene symbols to uppercase."""
     normalized = IDParser.normalize_identifier('brca1', 'gene')
     assert normalized == 'BRCA1'
+
+
+def test_normalize_uniprot_accession():
+    assert IDParser.normalize_identifier('p49711-1', 'protein') == 'P49711-1'
 
 
 def test_normalize_ontology_separator():

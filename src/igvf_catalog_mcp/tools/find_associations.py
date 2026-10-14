@@ -88,6 +88,7 @@ EDGE_PARAM_ALIASES: dict[str, list[str]] = {
     'name': ['gene_name'],
     'term_id': ['phenotype_id', 'disease_id'],
     'protein_id': ['query'],
+    'dbxrefs': ['query'],
 }
 
 

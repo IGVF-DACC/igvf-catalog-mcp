@@ -28,6 +28,9 @@ ENTITY_METHODS: dict[str, str] = {
     'pathway': 'pathways',
 }
 
+# UniProt accession format (https://www.uniprot.org/help/accession_numbers)
+UNIPROT_ACCESSION = r'(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})'
+
 
 class IDParser:
     """Parse and detect entity types from various ID formats."""
@@ -42,8 +45,9 @@ class IDParser:
         (r'^ENST\d+(\.\d+)?$', 'transcript', 'transcript_id'),
         # Proteins
         (r'^ENSP\d+(\.\d+)?$', 'protein', 'protein_id'),
-        # UniProt format like P49711-2
-        (r'^[A-Z0-9]{6}(-\d+)?$', 'protein', 'protein_id'),
+        # UniProt isoforms like P49711-2 are protein IDs; bare accessions are cross-references
+        (rf'^{UNIPROT_ACCESSION}-\d+$', 'protein', 'protein_id'),
+        (rf'^{UNIPROT_ACCESSION}$', 'protein', 'dbxrefs'),
         # Variants
         (r'^rs\d+$', 'variant', 'rsid'),
         (r'^NC_\d+\.\d+:\d+:[A-Z]+:[A-Z]+$', 'variant', 'spdi'),
@@ -140,6 +144,9 @@ class IDParser:
         # Normalize ontology term separators to underscores
         if entity_type == 'ontology':
             identifier = identifier.replace(':', '_')
+
+        if entity_type == 'protein' and re.match(rf'^{UNIPROT_ACCESSION}(-\d+)?$', identifier, re.IGNORECASE):
+            identifier = identifier.upper()
 
         # Convert gene symbols to uppercase
         if entity_type == 'gene' and re.match(r'^[A-Z][A-Z0-9]{1,9}$', identifier, re.IGNORECASE):

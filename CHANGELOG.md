@@ -21,6 +21,8 @@
   - Identifier types an endpoint does not accept (e.g. an rsID for `/variants/coding-variants`) are reported in `query_metadata` without calling the API.
 - Fixed existing `ruff check` errors.
 - **`find_associations` returned only the first endpoint's rows**: every endpoint was queried with `limit`, but the combined list was then cut to `limit`, so later endpoints (e.g. `genes_genomic_elements` for a gene's `regulatory` relationship) were never visible on any page. `limit` now applies per endpoint and every fetched row is returned.
+- **Gene symbols detected as UniProt accessions**: any six-character alphanumeric ID (TCF7L2, PNPLA3, VKORC1, CYP2C9, …) was treated as a protein. Proteins are now detected with the official UniProt accession pattern.
+- **Bare UniProt accessions did not resolve**: the API stores isoform IDs (`P49711-1`) as `protein_id`, so `P49711` found nothing. Accessions without an isoform suffix are now looked up through `dbxrefs` in `get_entity`, `resolve_id` and `find_associations`.
 
 ### Added
 - **Contract tests** (`tests/test_contract.py`) checking every method and parameter used by the server against the generated client, and offline tests running all six tools through `call_tool`.
