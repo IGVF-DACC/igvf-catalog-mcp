@@ -205,6 +205,32 @@ async def test_find_associations_uniprot_accession_uses_dbxrefs(fake_catalog):
     assert fake_catalog.params_for('/proteins/complexes') == [{'dbxrefs': 'P49711', 'page': '0', 'limit': '25'}]
 
 
+async def test_find_associations_rsid_resolved_to_spdi_for_coding(fake_catalog):
+    fake_catalog.add(
+        '/variants',
+        [{'spdi': 'NC_000022.11:43928846:C:G'}, {'spdi': 'NC_000022.11:43928846:C:T'}],
+    )
+    fake_catalog.add('/variants/coding-variants', [{'coding_variant': 'coding_variants/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'rs738409', 'relationship': 'coding'})
+    )
+
+    assert fake_catalog.params_for('/variants') == [{'rsid': 'rs738409', 'page': '0', 'limit': '100'}]
+    assert fake_catalog.params_for('/variants/coding-variants') == [
+        {'spdi': 'NC_000022.11:43928846:C:G', 'page': '0', 'limit': '25'},
+        {'spdi': 'NC_000022.11:43928846:C:T', 'page': '0', 'limit': '25'},
+    ]
+    assert data['num_associations'] == 2
+    assert [a['_endpoint'] for a in data['associations']] == ['variants_coding_variants'] * 2
+    metadata = data['query_metadata'][0]
+    assert metadata['resolved_from'] == 'rsid'
+    assert metadata['results_count'] == 2
+    assert metadata['_pagination']['has_more'] is False
+    assert metadata['params_used']['spdi'] == ['NC_000022.11:43928846:C:G', 'NC_000022.11:43928846:C:T']
+    assert 'error' not in metadata
+
+
 async def test_find_associations_ontology_term(fake_catalog):
     fake_catalog.add('/phenotypes/variants', [{'variant': 'variants/x'}])
 

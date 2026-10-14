@@ -13,7 +13,7 @@ from ..services.edge_config import (
     get_endpoints_for_entity_and_relationship,
 )
 from ..services.formatter import build_pagination_metadata, format_error
-from ..services.id_parser import IDParser
+from ..services.id_parser import VARIANT_LOOKUP_LIMIT, IDParser
 
 # Tool definition
 FIND_ASSOCIATIONS_TOOL = Tool(
@@ -240,6 +240,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         query_metadata = []
 
         client = get_client()
+        rsid_spdis: list[str] | None = None
         for endpoint_key in endpoint_keys:
             edge_config = get_edge_config(endpoint_key)
             if not edge_config:
@@ -247,7 +248,10 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
             # The IDParser gives us the node lookup parameter, but each endpoint may expect a different name
             endpoint_param_name = resolve_edge_param(param_name, edge_config)
-            if endpoint_param_name is None:
+            resolve_rsid = (
+                endpoint_param_name is None and param_name == 'rsid' and 'spdi' in edge_config.get('from_params', [])
+            )
+            if endpoint_param_name is None and not resolve_rsid:
                 query_metadata.append(
                     {
                         'endpoint': endpoint_key,
@@ -260,12 +264,30 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
             # Build query parameters
             try:
+                if resolve_rsid:
+                    # The endpoint does not accept rsIDs, so query each allele of the rsID by SPDI
+                    if rsid_spdis is None:
+                        variants = await client.call(
+                            'variants', rsid=normalized_id, limit=VARIANT_LOOKUP_LIMIT, page=0
+                        )
+                        rsid_spdis = [v['spdi'] for v in variants if v.get('spdi')]
+                    endpoint_param_name = 'spdi'
+                    lookup_ids = rsid_spdis
+                else:
+                    lookup_ids = [normalized_id]
+
                 params = build_query_params(
                     normalized_id, endpoint_param_name, edge_config, filters, limit, verbose, page
                 )
 
                 # Query the endpoint
-                associations = await client.call(edge_config['client_method'], **params)
+                associations = []
+                has_more = False
+                effective_limit = min(limit, edge_config.get('max_limit', 500))
+                for lookup_id in lookup_ids:
+                    rows = await client.call(edge_config['client_method'], **{**params, endpoint_param_name: lookup_id})
+                    has_more = has_more or len(rows) >= effective_limit
+                    associations.extend(rows)
 
                 # Add metadata to each association
                 for assoc in associations:
@@ -274,16 +296,17 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
                 all_associations.extend(associations)
 
-                effective_limit = min(limit, edge_config.get('max_limit', 500))
-                query_metadata.append(
-                    {
-                        'endpoint': endpoint_key,
-                        'path': edge_config['path'],
-                        'results_count': len(associations),
-                        '_pagination': build_pagination_metadata(associations, page, effective_limit),
-                        'params_used': {k: v for k, v in params.items() if k not in ['page']},
-                    }
-                )
+                metadata = {
+                    'endpoint': endpoint_key,
+                    'path': edge_config['path'],
+                    'results_count': len(associations),
+                    '_pagination': build_pagination_metadata(associations, page, effective_limit, has_more),
+                    'params_used': {k: v for k, v in params.items() if k not in ['page']},
+                }
+                if resolve_rsid:
+                    metadata['resolved_from'] = 'rsid'
+                    metadata['params_used']['spdi'] = lookup_ids
+                query_metadata.append(metadata)
 
             except Exception as e:
                 # Log error but continue with other endpoints
