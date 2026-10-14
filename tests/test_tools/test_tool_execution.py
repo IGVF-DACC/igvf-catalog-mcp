@@ -218,13 +218,29 @@ async def test_find_associations_protein_go_terms(fake_catalog):
 async def test_find_associations_uniprot_accession_uses_dbxrefs(fake_catalog):
     fake_catalog.add('/proteins/proteins', [{'protein 2': 'proteins/x'}])
 
+    fake_catalog.add(
+        '/proteins',
+        [
+            {'_id': 'ENSP00000264010', 'uniprot_names': ['CTCF_HUMAN']},
+            {'_id': 'ENSP00000494538', 'uniprot_names': ['CTCF_HUMAN']},
+        ],
+    )
+    fake_catalog.add('/proteins/complexes', [{'complex': 'complexes/x'}])
+
     data = response_json(
         await call_tool('igvf_catalog_find_associations', {'entity_id': 'P49711', 'relationship': 'physical'})
     )
 
-    assert data['num_associations'] == 1
+    assert data['num_associations'] == 2
     assert fake_catalog.params_for('/proteins/proteins') == [{'dbxrefs': 'P49711', 'page': '0', 'limit': '25'}]
-    assert fake_catalog.params_for('/proteins/complexes') == [{'dbxrefs': 'P49711', 'page': '0', 'limit': '25'}]
+    assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'P49711', 'page': '0', 'limit': '100'}]
+    assert fake_catalog.params_for('/proteins/complexes') == [
+        {'uniprot_name': 'CTCF_HUMAN', 'page': '0', 'limit': '25'}
+    ]
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert metadata['proteins_complexes']['resolved_from'] == 'dbxrefs'
+    assert metadata['proteins_complexes']['params_used']['uniprot_name'] == ['CTCF_HUMAN']
+    assert 'resolved_from' not in metadata['proteins_proteins']
 
 
 async def test_find_associations_rsid_resolved_to_spdi_for_coding(fake_catalog):

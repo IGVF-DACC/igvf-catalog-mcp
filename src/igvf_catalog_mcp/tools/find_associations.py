@@ -13,7 +13,7 @@ from ..services.edge_config import (
     get_endpoints_for_entity_and_relationship,
 )
 from ..services.formatter import ToolError, build_pagination_metadata, format_error
-from ..services.id_parser import VARIANT_LOOKUP_LIMIT, IDParser
+from ..services.id_parser import ID_LOOKUP_LIMIT, IDParser
 
 # Tool definition
 FIND_ASSOCIATIONS_TOOL = Tool(
@@ -90,6 +90,13 @@ EDGE_PARAM_ALIASES: dict[str, list[str]] = {
     'term_id': ['phenotype_id', 'disease_id'],
     'protein_id': ['query'],
     'dbxrefs': ['query'],
+}
+
+# Identifier types that some endpoints do not accept: (edge parameter, field of the looked-up node holding its value).
+# The identifier is looked up once, and such endpoints are queried once per value (e.g. per allele of an rsID).
+RESOLVED_EDGE_PARAMS: dict[str, tuple[str, str]] = {
+    'rsid': ('spdi', 'spdi'),
+    'dbxrefs': ('uniprot_name', 'uniprot_names'),
 }
 
 
@@ -233,7 +240,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         query_metadata = []
 
         client = get_client()
-        rsid_spdis: list[str] | None = None
+        resolved_ids: list[str] | None = None
         for endpoint_key in endpoint_keys:
             edge_config = get_edge_config(endpoint_key)
             if not edge_config:
@@ -241,10 +248,13 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
             # The IDParser gives us the node lookup parameter, but each endpoint may expect a different name
             endpoint_param_name = resolve_edge_param(param_name, edge_config)
-            resolve_rsid = (
-                endpoint_param_name is None and param_name == 'rsid' and 'spdi' in edge_config.get('from_params', [])
+            resolution = RESOLVED_EDGE_PARAMS.get(param_name)
+            resolve = (
+                endpoint_param_name is None
+                and resolution is not None
+                and resolution[0] in edge_config.get('from_params', [])
             )
-            if endpoint_param_name is None and not resolve_rsid:
+            if endpoint_param_name is None and not resolve:
                 query_metadata.append(
                     {
                         'endpoint': endpoint_key,
@@ -257,15 +267,20 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
             # Build query parameters
             try:
-                if resolve_rsid:
-                    # The endpoint does not accept rsIDs, so query each allele of the rsID by SPDI
-                    if rsid_spdis is None:
-                        variants = await client.call(
-                            'variants', rsid=normalized_id, limit=VARIANT_LOOKUP_LIMIT, page=0
+                if resolve:
+                    endpoint_param_name, field = resolution
+                    if resolved_ids is None:
+                        nodes = await client.call(
+                            IDParser.get_client_method(entity_type),
+                            **{param_name: normalized_id, 'limit': ID_LOOKUP_LIMIT, 'page': 0},
                         )
-                        rsid_spdis = [v['spdi'] for v in variants if v.get('spdi')]
-                    endpoint_param_name = 'spdi'
-                    lookup_ids = rsid_spdis
+                        resolved_ids = []
+                        for node in nodes:
+                            value = node.get(field) or []
+                            for resolved_id in value if isinstance(value, list) else [value]:
+                                if resolved_id not in resolved_ids:
+                                    resolved_ids.append(resolved_id)
+                    lookup_ids = resolved_ids
                 else:
                     lookup_ids = [normalized_id]
 
@@ -298,9 +313,9 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 }
                 if limit > effective_limit:
                     metadata['limit_capped_to'] = effective_limit
-                if resolve_rsid:
-                    metadata['resolved_from'] = 'rsid'
-                    metadata['params_used']['spdi'] = lookup_ids
+                if resolve:
+                    metadata['resolved_from'] = param_name
+                    metadata['params_used'][endpoint_param_name] = lookup_ids
                 query_metadata.append(metadata)
 
             except Exception as e:
