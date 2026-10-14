@@ -166,20 +166,36 @@ def test_invalid_identifier():
         IDParser.detect_entity_type('invalid_id_12345!@#')
 
 
-def test_normalize_gene_symbol():
-    """Test normalization of gene symbols to uppercase."""
-    normalized = IDParser.normalize_identifier('brca1', 'gene')
-    assert normalized == 'BRCA1'
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('brca1', 'BRCA1'),
+        ('ensg00000141510', 'ENSG00000141510'),
+        ('enst00000443707.2', 'ENST00000443707.2'),
+        ('p49711-1', 'P49711-1'),
+        ('p49711', 'P49711'),
+        ('RS7903146', 'rs7903146'),
+        ('nc_000012.12:102917129:t:c', 'NC_000012.12:102917129:T:C'),
+        ('nc_000001.11:G.12346a>g', 'NC_000001.11:g.12346A>G'),
+        ('ca9324761', 'CA9324761'),
+        ('mondo:0008199', 'MONDO_0008199'),
+        ('orphanet_586', 'Orphanet_586'),
+        ('ORPHANET:586', 'Orphanet_586'),
+        ('hgnc:1100', 'HGNC:1100'),
+        ('pa448497', 'PA448497'),
+        ('cpx-9', 'CPX-9'),
+        ('r-hsa-164843', 'R-HSA-164843'),
+    ],
+)
+def test_normalize_identifier_case(identifier, expected):
+    entity_type, param_name = IDParser.detect_entity_type(identifier)
+    assert IDParser.normalize_identifier(identifier, entity_type, param_name) == expected
 
 
-def test_normalize_uniprot_accession():
-    assert IDParser.normalize_identifier('p49711-1', 'protein') == 'P49711-1'
-
-
-def test_normalize_ontology_separator():
-    """Test normalization of ontology term separators."""
-    normalized = IDParser.normalize_identifier('MONDO:0008199', 'ontology')
-    assert normalized == 'MONDO_0008199'
+def test_normalize_keeps_names():
+    assert IDParser.normalize_identifier(' lupus ', 'ontology', 'name') == 'lupus'
+    assert IDParser.normalize_identifier('Warfarin', 'drug', 'name') == 'Warfarin'
+    assert IDParser.normalize_identifier('ctcf', 'gene', 'name') == 'CTCF'
 
 
 def test_get_client_method():

@@ -212,7 +212,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
         # Detect entity type
         entity_type, param_name = IDParser.detect_entity_type(entity_id)
-        normalized_id = IDParser.normalize_identifier(entity_id, entity_type)
+        normalized_id = IDParser.normalize_identifier(entity_id, entity_type, param_name)
 
         # Determine which endpoints to query
         if relationship == 'all':
@@ -316,6 +316,11 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 if resolve:
                     metadata['resolved_from'] = param_name
                     metadata['params_used'][endpoint_param_name] = lookup_ids
+                    if not lookup_ids:
+                        metadata['note'] = (
+                            f"No {entity_type} found with {param_name}='{normalized_id}', "
+                            'so this endpoint was not queried.'
+                        )
                 query_metadata.append(metadata)
 
             except Exception as e:

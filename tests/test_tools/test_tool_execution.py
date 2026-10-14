@@ -284,6 +284,30 @@ async def test_find_associations_reports_capped_limit(fake_catalog):
     assert fake_catalog.params_for('/genes/genes') == [{'gene_name': 'BRCA1', 'page': '0', 'limit': '100'}]
 
 
+async def test_find_associations_uppercase_rsid_is_normalized(fake_catalog):
+    fake_catalog.add('/variants', [{'spdi': 'NC_000022.11:43928846:C:G'}])
+    fake_catalog.add('/variants/coding-variants', [{'coding_variant': 'coding_variants/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'RS738409', 'relationship': 'coding'})
+    )
+
+    assert data['entity_id'] == 'rs738409'
+    assert data['num_associations'] == 1
+    assert fake_catalog.params_for('/variants')[0]['rsid'] == 'rs738409'
+
+
+async def test_find_associations_unresolved_rsid_is_reported(fake_catalog):
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'rs1', 'relationship': 'coding'})
+    )
+
+    metadata = data['query_metadata'][0]
+    assert metadata['results_count'] == 0
+    assert metadata['note'] == "No variant found with rsid='rs1', so this endpoint was not queried."
+    assert fake_catalog.params_for('/variants/coding-variants') == []
+
+
 async def test_find_associations_ontology_term(fake_catalog):
     fake_catalog.add('/phenotypes/variants', [{'variant': 'variants/x'}])
 

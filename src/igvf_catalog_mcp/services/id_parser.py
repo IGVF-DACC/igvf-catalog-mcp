@@ -73,7 +73,7 @@ class IDParser:
         (r'^NC_\d+\.\d+:g\.\d+[A-Z]>[A-Z]$', 'variant', 'hgvs'),
         (r'^CA\d+$', 'variant', 'ca_id'),
         # Ontology terms
-        (r'^Orphanet_\d+$', 'ontology', 'term_id'),
+        (r'^Orphanet[_:]\d+$', 'ontology', 'term_id'),
         (r'^MONDO[_:]\d+$', 'ontology', 'term_id'),
         (r'^EFO[_:]\d+$', 'ontology', 'term_id'),
         (r'^GO[_:]\d+$', 'ontology', 'term_id'),
@@ -155,28 +155,36 @@ class IDParser:
         return ENTITY_METHODS[entity_type]
 
     @classmethod
-    def normalize_identifier(cls, identifier: str, entity_type: EntityType) -> str:
+    def normalize_identifier(cls, identifier: str, entity_type: EntityType, param_name: str) -> str:
         """
         Normalize an identifier for API queries.
+
+        IDs are matched case-insensitively, so they are converted to the case the catalog stores.
+        Names are passed through, except gene symbols, which are uppercase.
 
         Args:
             identifier: The raw identifier
             entity_type: The detected entity type
+            param_name: The lookup parameter returned by detect_entity_type
 
         Returns:
             Normalized identifier
         """
         identifier = identifier.strip()
 
-        # Normalize ontology term separators to underscores
+        if param_name == 'name':
+            if entity_type == 'gene':
+                identifier = identifier.upper()
+            return identifier
+
+        if param_name == 'rsid':
+            return identifier.lower()
+
+        identifier = identifier.upper()
+        if param_name == 'hgvs':
+            identifier = identifier.replace(':G.', ':g.')
         if entity_type == 'ontology':
-            identifier = identifier.replace(':', '_')
-
-        if entity_type == 'protein' and re.match(rf'^{UNIPROT_ACCESSION}(-\d+)?$', identifier, re.IGNORECASE):
-            identifier = identifier.upper()
-
-        # Convert gene symbols to uppercase
-        if entity_type == 'gene' and re.match(r'^[A-Z][A-Z0-9]{1,9}$', identifier, re.IGNORECASE):
-            identifier = identifier.upper()
+            # Ontology term separators are stored as underscores
+            identifier = identifier.replace(':', '_').replace('ORPHANET_', 'Orphanet_')
 
         return identifier

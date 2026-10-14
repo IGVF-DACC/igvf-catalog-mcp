@@ -99,7 +99,7 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
                 f'Please provide a valid variant identifier (rsID, SPDI, HGVS, or ClinGen Allele ID).'
             )
 
-        normalized_id = IDParser.normalize_identifier(variant_id, entity_type)
+        normalized_id = IDParser.normalize_identifier(variant_id, entity_type, param_name)
 
         # Build query parameters
         params = {
