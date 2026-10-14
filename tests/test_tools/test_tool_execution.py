@@ -3,8 +3,10 @@
 import json
 
 import pytest
+from mcp import types
 
-from igvf_catalog_mcp.server import call_tool
+from igvf_catalog_mcp.server import app, call_tool
+from igvf_catalog_mcp.services.formatter import ToolError
 
 
 def response_json(result):
@@ -77,11 +79,12 @@ async def test_get_entity_not_found(fake_catalog):
 async def test_get_entity_api_error(fake_catalog):
     fake_catalog.add('/genes', {'message': 'Internal error'}, status=500)
 
-    result = await call_tool('igvf_catalog_get_entity', {'id': 'ENSG00000139618'})
+    with pytest.raises(ToolError) as error:
+        await call_tool('igvf_catalog_get_entity', {'id': 'ENSG00000139618'})
 
-    assert result[0].text.startswith('Error retrieving entity: ServiceException')
-    assert 'Internal error' in result[0].text
-    assert 'HTTP response headers' not in result[0].text
+    assert str(error.value).startswith('Error retrieving entity: ServiceException')
+    assert 'Internal error' in str(error.value)
+    assert 'HTTP response headers' not in str(error.value)
 
 
 # search_region
@@ -283,18 +286,29 @@ async def test_find_associations_returns_rows_from_every_endpoint(fake_catalog):
 async def test_find_associations_endpoint_error_is_reported(fake_catalog):
     fake_catalog.add('/genes/genes', {'message': 'boom'}, status=500)
 
-    data = response_json(
+    with pytest.raises(ToolError) as error:
         await call_tool('igvf_catalog_find_associations', {'entity_id': 'ENSG00000163874', 'relationship': 'physical'})
+
+    assert str(error.value).startswith('Error finding associations: genes_genes: (500)')
+    assert 'boom' in str(error.value)
+
+
+async def test_find_associations_partial_endpoint_error_is_reported(fake_catalog):
+    fake_catalog.add('/genes/variants', {'message': 'boom'}, status=500)
+    fake_catalog.add('/genes/genomic-elements', [{'genomic_element': 'genomic_elements/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'BRCA1', 'relationship': 'regulatory'})
     )
 
-    assert data['num_associations'] == 0
+    assert data['num_associations'] == 1
     assert 'boom' in data['query_metadata'][0]['error']
 
 
 async def test_find_associations_unknown_relationship(fake_catalog):
-    result = await call_tool('igvf_catalog_find_associations', {'entity_id': 'rs1', 'relationship': 'nope'})
+    with pytest.raises(ToolError, match='^Unknown relationship type: nope'):
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'rs1', 'relationship': 'nope'})
 
-    assert result[0].text.startswith('Unknown relationship type: nope')
     assert fake_catalog.requests == []
 
 
@@ -340,9 +354,9 @@ async def test_find_ld_no_results(fake_catalog):
 
 
 async def test_find_ld_rejects_non_variant(fake_catalog):
-    result = await call_tool('igvf_catalog_find_ld', {'variant_id': 'ENSG00000163874'})
+    with pytest.raises(ToolError, match='^Error: Expected a variant ID, but got gene'):
+        await call_tool('igvf_catalog_find_ld', {'variant_id': 'ENSG00000163874'})
 
-    assert result[0].text.startswith('Error: Expected a variant ID, but got gene')
     assert fake_catalog.requests == []
 
 
@@ -423,11 +437,59 @@ async def test_list_sources_endpoint(fake_catalog):
 
 
 async def test_list_sources_unknown_category(fake_catalog):
-    result = await call_tool('igvf_catalog_list_sources', {'category': 'nope'})
-
-    assert result[0].text.startswith('Unknown category: nope')
+    with pytest.raises(ToolError, match='^Unknown category: nope'):
+        await call_tool('igvf_catalog_list_sources', {'category': 'nope'})
 
 
 async def test_unknown_tool():
     with pytest.raises(ValueError, match='Unknown tool'):
         await call_tool('igvf_catalog_nope', {})
+
+
+# MCP protocol errors
+
+
+async def call_tool_request(name, arguments):
+    request = types.CallToolRequest(
+        method='tools/call', params=types.CallToolRequestParams(name=name, arguments=arguments)
+    )
+    return (await app.request_handlers[types.CallToolRequest](request)).root
+
+
+@pytest.mark.parametrize(
+    ('name', 'arguments', 'message'),
+    [
+        ('igvf_catalog_search_region', {'region': 'chr1:200-100'}, 'must be less than end'),
+        ('igvf_catalog_search_region', {'region': 'chr1-100'}, 'Invalid region format'),
+        (
+            'igvf_catalog_find_associations',
+            {'entity_id': 'MONDO_0007915', 'relationship': 'physical'},
+            'not applicable to ontology entities',
+        ),
+        ('igvf_catalog_get_entity', {'id': '???'}, 'Could not detect entity type'),
+        ('igvf_catalog_resolve_id', {'id': '???'}, 'Could not detect entity type'),
+        ('igvf_catalog_find_ld', {'variant_id': 'BRCA1'}, 'Expected a variant ID'),
+        ('igvf_catalog_list_sources', {'endpoint': 'nope'}, 'Unknown endpoint: nope'),
+    ],
+)
+async def test_invalid_input_is_a_tool_error(fake_catalog, name, arguments, message):
+    result = await call_tool_request(name, arguments)
+
+    assert result.isError is True
+    assert message in result.content[0].text
+
+
+async def test_api_error_is_a_tool_error(fake_catalog):
+    fake_catalog.add('/variants', {'message': 'Internal error'}, status=500)
+
+    result = await call_tool_request('igvf_catalog_resolve_id', {'id': 'rs58542926'})
+
+    assert result.isError is True
+    assert 'Internal error' in result.content[0].text
+
+
+async def test_not_found_is_not_a_tool_error(fake_catalog):
+    result = await call_tool_request('igvf_catalog_get_entity', {'id': 'ENSG00000000001'})
+
+    assert result.isError is False
+    assert result.content[0].text == "No gene found with gene_id='ENSG00000000001'"

@@ -6,7 +6,7 @@ from typing import Any
 from mcp.types import TextContent, Tool
 
 from ..services.edge_config import EDGE_ENDPOINTS, get_edge_config, get_sources_by_category, supports_verbose
-from ..services.formatter import format_error
+from ..services.formatter import ToolError, format_error
 
 # Tool definition
 LIST_SOURCES_TOOL = Tool(
@@ -163,24 +163,18 @@ async def list_sources(arguments: dict[str, Any]) -> list[TextContent]:
             # Return details for a specific endpoint
             response_data = get_endpoint_details(endpoint)
             if not response_data:
-                return [
-                    TextContent(
-                        type='text',
-                        text=f'Unknown endpoint: {endpoint}. '
-                        f"Available endpoints: {', '.join(EDGE_ENDPOINTS.keys())}",
-                    )
-                ]
+                raise ToolError(
+                    f'Unknown endpoint: {endpoint}. '
+                    f"Available endpoints: {', '.join(EDGE_ENDPOINTS.keys())}"
+                )
         elif category:
             # Return specific category
             sources_by_category = get_sources_by_category()
             if category not in sources_by_category:
-                return [
-                    TextContent(
-                        type='text',
-                        text=f'Unknown category: {category}. '
-                        f"Valid categories: {', '.join(sources_by_category.keys())}",
-                    )
-                ]
+                raise ToolError(
+                    f'Unknown category: {category}. '
+                    f"Valid categories: {', '.join(sources_by_category.keys())}"
+                )
 
             response_data = get_category_details(category)
         else:
@@ -213,10 +207,7 @@ async def list_sources(arguments: dict[str, Any]) -> list[TextContent]:
             )
         ]
 
+    except ToolError:
+        raise
     except Exception as e:
-        return [
-            TextContent(
-                type='text',
-                text=f'Error listing sources: {format_error(e)}',
-            )
-        ]
+        raise ToolError(f'Error listing sources: {format_error(e)}') from e

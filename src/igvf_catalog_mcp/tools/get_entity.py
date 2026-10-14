@@ -5,7 +5,7 @@ from typing import Any
 from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client
-from ..services.formatter import add_entity_type, format_error
+from ..services.formatter import ToolError, add_entity_type, format_error
 from ..services.id_parser import IDParser
 
 # Tool definition
@@ -88,17 +88,7 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
 
     except ValueError as e:
         # ID parsing or validation errors
-        return [
-            TextContent(
-                type='text',
-                text=format_error(e),
-            )
-        ]
+        raise ToolError(format_error(e)) from e
     except Exception as e:
         # API errors or other issues
-        return [
-            TextContent(
-                type='text',
-                text=f'Error retrieving entity: {format_error(e)}',
-            )
-        ]
+        raise ToolError(f'Error retrieving entity: {format_error(e)}') from e

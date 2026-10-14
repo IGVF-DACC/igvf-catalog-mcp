@@ -12,7 +12,7 @@ from ..services.edge_config import (
     get_edge_config,
     get_endpoints_for_entity_and_relationship,
 )
-from ..services.formatter import build_pagination_metadata, format_error
+from ..services.formatter import ToolError, build_pagination_metadata, format_error
 from ..services.id_parser import VARIANT_LOOKUP_LIMIT, IDParser
 
 # Tool definition
@@ -216,24 +216,16 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         else:
             # Get endpoints for specific relationship type
             if relationship not in RELATIONSHIP_TYPE_MAPPING:
-                return [
-                    TextContent(
-                        type='text',
-                        text=f'Unknown relationship type: {relationship}. '
-                        f"Valid types: {', '.join(RELATIONSHIP_TYPE_MAPPING.keys())}, all",
-                    )
-                ]
+                raise ToolError(
+                    f'Unknown relationship type: {relationship}. '
+                    f"Valid types: {', '.join(RELATIONSHIP_TYPE_MAPPING.keys())}, all"
+                )
 
             endpoint_keys = get_endpoints_for_entity_and_relationship(
                 entity_type, relationship)
 
             if not endpoint_keys:
-                return [
-                    TextContent(
-                        type='text',
-                        text=f"Relationship type '{relationship}' not applicable to {entity_type} entities.",
-                    )
-                ]
+                raise ToolError(f"Relationship type '{relationship}' not applicable to {entity_type} entities.")
 
         # Query all applicable endpoints
         all_associations = []
@@ -318,6 +310,10 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     }
                 )
 
+        if query_metadata and all('error' in m for m in query_metadata):
+            errors = '; '.join(f"{m['endpoint']}: {m['error']}" for m in query_metadata)
+            raise ToolError(f'Error finding associations: {errors}')
+
         # Format response
         any_has_more = any(
             m.get('_pagination', {}).get('has_more', False)
@@ -352,19 +348,11 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             )
         ]
 
+    except ToolError:
+        raise
     except ValueError as e:
         # ID parsing errors
-        return [
-            TextContent(
-                type='text',
-                text=format_error(e),
-            )
-        ]
+        raise ToolError(format_error(e)) from e
     except Exception as e:
         # API errors or other issues
-        return [
-            TextContent(
-                type='text',
-                text=f'Error finding associations: {format_error(e)}',
-            )
-        ]
+        raise ToolError(f'Error finding associations: {format_error(e)}') from e

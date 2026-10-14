@@ -6,7 +6,7 @@ from typing import Any
 from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client
-from ..services.formatter import format_error
+from ..services.formatter import ToolError, format_error
 from ..services.id_parser import VARIANT_LOOKUP_LIMIT, IDParser
 
 # Tool definition
@@ -153,17 +153,7 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
 
     except ValueError as e:
         # ID parsing errors
-        return [
-            TextContent(
-                type='text',
-                text=format_error(e),
-            )
-        ]
+        raise ToolError(format_error(e)) from e
     except Exception as e:
         # API errors or other issues
-        return [
-            TextContent(
-                type='text',
-                text=f'Error resolving identifier: {format_error(e)}',
-            )
-        ]
+        raise ToolError(f'Error resolving identifier: {format_error(e)}') from e

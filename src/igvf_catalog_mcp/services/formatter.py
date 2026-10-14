@@ -3,6 +3,10 @@
 from typing import Any
 
 
+class ToolError(Exception):
+    """Invalid input or a failed API request, returned to the client as a tool error (isError: true)."""
+
+
 def build_pagination_metadata(
     results: list, page: int, limit: int, has_more: bool | None = None
 ) -> dict[str, Any]:

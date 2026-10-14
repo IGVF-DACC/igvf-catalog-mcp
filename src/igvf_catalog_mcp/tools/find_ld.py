@@ -7,7 +7,7 @@ from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client
 from ..services.edge_config import EDGE_ENDPOINTS
-from ..services.formatter import build_pagination_metadata, format_error
+from ..services.formatter import ToolError, build_pagination_metadata, format_error
 from ..services.id_parser import IDParser
 
 # Tool definition
@@ -94,13 +94,10 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
         entity_type, param_name = IDParser.detect_entity_type(variant_id)
 
         if entity_type != 'variant':
-            return [
-                TextContent(
-                    type='text',
-                    text=f'Error: Expected a variant ID, but got {entity_type}. '
-                    f'Please provide a valid variant identifier (rsID, SPDI, HGVS, or ClinGen Allele ID).',
-                )
-            ]
+            raise ToolError(
+                f'Error: Expected a variant ID, but got {entity_type}. '
+                f'Please provide a valid variant identifier (rsID, SPDI, HGVS, or ClinGen Allele ID).'
+            )
 
         normalized_id = IDParser.normalize_identifier(variant_id, entity_type)
 
@@ -174,19 +171,11 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
             )
         ]
 
+    except ToolError:
+        raise
     except ValueError as e:
         # ID parsing errors
-        return [
-            TextContent(
-                type='text',
-                text=format_error(e),
-            )
-        ]
+        raise ToolError(format_error(e)) from e
     except Exception as e:
         # API errors or other issues
-        return [
-            TextContent(
-                type='text',
-                text=f'Error finding LD variants: {format_error(e)}',
-            )
-        ]
+        raise ToolError(f'Error finding LD variants: {format_error(e)}') from e
