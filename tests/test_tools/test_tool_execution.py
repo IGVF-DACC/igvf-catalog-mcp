@@ -716,27 +716,44 @@ async def test_resolve_id_variant(fake_catalog, sample_variant_data):
     assert data['identifiers']['position'] == 43044295
     assert data['alleles'] == [
         {'spdi': 'NC_000017.11:43044295:G:A', 'hgvs': 'NC_000017.11:g.43044296G>A', 'ca_id': 'CA6028682',
-         'ref': 'G', 'alt': 'A'}
+         'ref': 'G', 'alt': 'A', 'gnomad_af_total': 0.00001}
     ]
     assert 'note' not in data
     assert fake_catalog.params_for('/variants') == [{'ca_id': 'CA6028682', 'limit': '500', 'page': '0'}]
 
 
-async def test_resolve_id_multi_allelic_rsid(fake_catalog):
-    alleles = [
+def rs58542926_alleles(af_a, af_t):
+    return [
         {'_id': f'NC_000019.10:19268739:C:{alt}', 'rsid': ['rs58542926'], 'spdi': f'NC_000019.10:19268739:C:{alt}',
-         'hgvs': f'NC_000019.10:g.19268740C>{alt}', 'ca_id': ca_id, 'ref': 'C', 'alt': alt}
-        for alt, ca_id in [('A', 'CA404925740'), ('T', 'CA020130')]
+         'hgvs': f'NC_000019.10:g.19268740C>{alt}', 'ca_id': ca_id, 'ref': 'C', 'alt': alt,
+         'annotations': {'bravo_af': 0.01, 'gnomad_af_total': af}}
+        for alt, ca_id, af in [('A', 'CA404925740', af_a), ('T', 'CA9324761', af_t)]
     ]
-    fake_catalog.add('/variants', alleles)
+
+
+async def test_resolve_id_multi_allelic_rsid(fake_catalog):
+    fake_catalog.add('/variants', rs58542926_alleles(None, 0.058314))
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'rs58542926'}))
+
+    assert data['identifiers']['spdi'] == 'NC_000019.10:19268739:C:T'
+    assert data['identifiers']['ca_id'] == 'CA9324761'
+    assert [a['spdi'] for a in data['alleles']] == ['NC_000019.10:19268739:C:A', 'NC_000019.10:19268739:C:T']
+    assert [a['ca_id'] for a in data['alleles']] == ['CA404925740', 'CA9324761']
+    assert [a['gnomad_af_total'] for a in data['alleles']] == [None, 0.058314]
+    assert 'multi-allelic' in data['note']
+    assert 'highest gnomAD allele frequency (NC_000019.10:19268739:C:T)' in data['note']
+    assert fake_catalog.params_for('/genes') == [{'name': 'RS58542926', 'limit': '500', 'page': '0'}]
+    assert fake_catalog.params_for('/variants') == [{'rsid': 'rs58542926', 'limit': '500', 'page': '0'}]
+
+
+async def test_resolve_id_multi_allelic_rsid_without_frequencies(fake_catalog):
+    fake_catalog.add('/variants', rs58542926_alleles(None, None))
 
     data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'rs58542926'}))
 
     assert data['identifiers']['spdi'] == 'NC_000019.10:19268739:C:A'
-    assert [a['spdi'] for a in data['alleles']] == ['NC_000019.10:19268739:C:A', 'NC_000019.10:19268739:C:T']
-    assert [a['ca_id'] for a in data['alleles']] == ['CA404925740', 'CA020130']
-    assert 'multi-allelic' in data['note']
-    assert fake_catalog.params_for('/variants') == [{'rsid': 'rs58542926', 'limit': '500', 'page': '0'}]
+    assert 'the first one, as no allele has gnomAD allele frequency data' in data['note']
 
 
 async def test_resolve_id_gene(fake_catalog, sample_gene_data):
@@ -769,7 +786,48 @@ async def test_resolve_id_uniprot_accession(fake_catalog):
     data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'P49711'}))
 
     assert data['identifiers']['protein_id'] == 'ENSP00000494538'
-    assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'P49711', 'page': '0'}]
+    assert data['identifiers']['uniprot_accession'] == 'P49711'
+    assert 'note' not in data
+    assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'P49711', 'limit': '50', 'page': '0'}]
+
+
+async def test_resolve_id_protein_isoforms_prefer_mane_select(fake_catalog):
+    dbxrefs = [{'name': 'PDB', 'id': f'{i}ABC'} for i in range(1000)]
+    proteins = [
+        {'_id': f'ENSP0000048440{i}', 'name': 'TP53', 'uniprot_ids': [f'P04637-{i}'], 'uniprot_names': ['P53_HUMAN'],
+         'uniprot_full_names': ['Cellular tumor antigen p53'], 'MANE_Select': i == 1, 'dbxrefs': dbxrefs}
+        for i in [9, 1, 2]
+    ]
+    fake_catalog.add('/proteins', proteins)
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'P04637'}))
+
+    assert data['identifiers'] == {
+        'protein_id': 'ENSP00000484401',
+        'name': 'TP53',
+        'uniprot_ids': ['P04637-1'],
+        'uniprot_names': ['P53_HUMAN'],
+        'uniprot_full_names': ['Cellular tumor antigen p53'],
+        'uniprot_accession': 'P04637',
+        'MANE_Select': True,
+        'dbxrefs_count': 1000,
+    }
+    assert data['proteins'] == [
+        {'protein_id': f'ENSP0000048440{i}', 'name': 'TP53', 'uniprot_ids': [f'P04637-{i}'],
+         'uniprot_names': ['P53_HUMAN'], 'MANE_Select': i == 1}
+        for i in [9, 1, 2]
+    ]
+    assert 'matches 3 proteins' in data['note']
+    assert 'MANE Select protein (ENSP00000484401)' in data['note']
+
+
+async def test_resolve_id_protein_without_mane_select(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP1', 'MANE_Select': False}, {'_id': 'ENSP2', 'MANE_Select': False}])
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'P49711'}))
+
+    assert data['identifiers']['protein_id'] == 'ENSP1'
+    assert 'the first one, as none is MANE Select' in data['note']
 
 
 # list_sources
