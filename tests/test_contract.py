@@ -14,8 +14,8 @@ from igvf_catalog_async_client import AsyncIgvfCatalogApi
 
 from igvf_catalog_mcp.services.api_client import method_params
 from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS
-from igvf_catalog_mcp.services.id_parser import ENTITY_METHODS, IDParser
-from igvf_catalog_mcp.tools.find_associations import EDGE_PARAM_ALIASES, build_query_params
+from igvf_catalog_mcp.services.id_parser import ENTITY_METHODS, NAME_PARAMS, IDParser
+from igvf_catalog_mcp.tools.find_associations import EDGE_PARAM_ALIASES, RESOLVED_EDGE_PARAMS, build_query_params
 from igvf_catalog_mcp.tools.search_region import REGION_QUERY_METHODS
 
 PAGING_PARAMS = {'page', 'limit'}
@@ -80,6 +80,19 @@ def test_entity_lookup_params_match_client():
         method_name = IDParser.get_client_method(entity_type)
         assert param_name in method_params(method_name), f'{param_name} not accepted by {method_name}'
         assert 'page' in method_params(method_name)
+
+
+def test_name_lookup_params_match_client():
+    for entity_type, param_name in NAME_PARAMS.items():
+        method_name = IDParser.get_client_method(entity_type)
+        assert param_name in method_params(method_name), f'{param_name} not accepted by {method_name}'
+
+
+def test_resolved_edge_params_match_client():
+    for param_name, (edge_param, _) in RESOLVED_EDGE_PARAMS.items():
+        entity_type = next(entity_type for _, entity_type, name in IDParser.PATTERNS if name == param_name)
+        assert {param_name, 'limit', 'page'} <= method_params(IDParser.get_client_method(entity_type))
+        assert any(edge_param in config.get('from_params', []) for config in EDGE_ENDPOINTS.values())
 
 
 @pytest.mark.parametrize('method_name', sorted(set(REGION_QUERY_METHODS.values())))

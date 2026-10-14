@@ -6,8 +6,8 @@ from typing import Any
 from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client
-from ..services.formatter import format_error
-from ..services.id_parser import IDParser
+from ..services.formatter import ToolError, format_error
+from ..services.id_parser import ID_LOOKUP_LIMIT, IDParser
 
 # Tool definition
 RESOLVE_ID_TOOL = Tool(
@@ -53,10 +53,10 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
         normalized_id = IDParser.normalize_identifier(entity_id, entity_type)
 
         # Query the API to get the full entity
-        entities = await get_client().call(
-            IDParser.get_client_method(entity_type),
-            **{param_name: normalized_id, 'page': 0},
-        )
+        query = {param_name: normalized_id, 'page': 0}
+        if entity_type == 'variant':
+            query['limit'] = ID_LOOKUP_LIMIT
+        entities = await get_client().call(IDParser.get_client_method(entity_type), **query)
 
         if not entities:
             return [
@@ -84,6 +84,14 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
                 'ref': entity.get('ref'),
                 'alt': entity.get('alt'),
             }
+            identifiers['alleles'] = [
+                {key: variant.get(key) for key in ['spdi', 'hgvs', 'ca_id', 'ref', 'alt']} for variant in entities
+            ]
+            if len(entities) > 1:
+                identifiers['note'] = (
+                    f'{entity_id} is multi-allelic: it matches {len(entities)} variants, listed in alleles. '
+                    'The top-level identifiers describe the first one.'
+                )
         elif entity_type == 'gene':
             # Gene identifiers
             identifiers['identifiers'] = {
@@ -145,17 +153,7 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
 
     except ValueError as e:
         # ID parsing errors
-        return [
-            TextContent(
-                type='text',
-                text=format_error(e),
-            )
-        ]
+        raise ToolError(format_error(e)) from e
     except Exception as e:
         # API errors or other issues
-        return [
-            TextContent(
-                type='text',
-                text=f'Error resolving identifier: {format_error(e)}',
-            )
-        ]
+        raise ToolError(f'Error resolving identifier: {format_error(e)}') from e

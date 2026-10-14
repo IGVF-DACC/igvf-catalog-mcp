@@ -28,6 +28,28 @@ ENTITY_METHODS: dict[str, str] = {
     'pathway': 'pathways',
 }
 
+# Entity type for each accepted hint
+HINT_TYPES: dict[str, str] = {
+    **{entity_type: entity_type for entity_type in ENTITY_METHODS},
+    'disease': 'ontology',
+}
+
+# Lookup parameter used when a hinted identifier is a name rather than an ID
+NAME_PARAMS: dict[str, str] = {
+    'gene': 'name',
+    'protein': 'name',
+    'ontology': 'name',
+    'drug': 'name',
+    'complex': 'name',
+    'pathway': 'name',
+}
+
+# Page size for identifier lookups, so that every allele of an rsID or isoform of a UniProt accession is returned
+ID_LOOKUP_LIMIT = 100
+
+# UniProt accession format (https://www.uniprot.org/help/accession_numbers)
+UNIPROT_ACCESSION = r'(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})'
+
 
 class IDParser:
     """Parse and detect entity types from various ID formats."""
@@ -42,8 +64,9 @@ class IDParser:
         (r'^ENST\d+(\.\d+)?$', 'transcript', 'transcript_id'),
         # Proteins
         (r'^ENSP\d+(\.\d+)?$', 'protein', 'protein_id'),
-        # UniProt format like P49711-2
-        (r'^[A-Z0-9]{6}(-\d+)?$', 'protein', 'protein_id'),
+        # UniProt isoforms like P49711-2 are protein IDs; bare accessions are cross-references
+        (rf'^{UNIPROT_ACCESSION}-\d+$', 'protein', 'protein_id'),
+        (rf'^{UNIPROT_ACCESSION}$', 'protein', 'dbxrefs'),
         # Variants
         (r'^rs\d+$', 'variant', 'rsid'),
         (r'^NC_\d+\.\d+:\d+:[A-Z]+:[A-Z]+$', 'variant', 'spdi'),
@@ -87,17 +110,25 @@ class IDParser:
             argument of the entity's lookup method (see get_client_method)
 
         Raises:
-            ValueError: If the identifier format is not recognized
+            ValueError: If the identifier format is not recognized, or the hint is unknown or does not
+                fit the identifier
         """
         # Normalize identifier
         identifier = identifier.strip()
 
-        # If hint is provided and matches, use it
+        # A hint selects the entity type; identifiers that are not IDs of that type are looked up by name
         if hint:
-            hint_lower = hint.lower()
+            hinted_type = HINT_TYPES.get(hint.lower())
+            if hinted_type is None:
+                raise ValueError(f"Unknown hint: '{hint}'. Valid hints: {', '.join(HINT_TYPES)}")
             for pattern, entity_type, param_name in cls.PATTERNS:
-                if entity_type == hint_lower and re.match(pattern, identifier, re.IGNORECASE):
+                if entity_type == hinted_type and re.match(pattern, identifier, re.IGNORECASE):
                     return entity_type, param_name  # type: ignore
+            if hinted_type in NAME_PARAMS:
+                return hinted_type, NAME_PARAMS[hinted_type]  # type: ignore
+            raise ValueError(
+                f"'{identifier}' is not a {hint} identifier, and {hint} entities cannot be looked up by name."
+            )
 
         # Try pattern matching
         for pattern, entity_type, param_name in cls.PATTERNS:
@@ -140,6 +171,9 @@ class IDParser:
         # Normalize ontology term separators to underscores
         if entity_type == 'ontology':
             identifier = identifier.replace(':', '_')
+
+        if entity_type == 'protein' and re.match(rf'^{UNIPROT_ACCESSION}(-\d+)?$', identifier, re.IGNORECASE):
+            identifier = identifier.upper()
 
         # Convert gene symbols to uppercase
         if entity_type == 'gene' and re.match(r'^[A-Z][A-Z0-9]{1,9}$', identifier, re.IGNORECASE):

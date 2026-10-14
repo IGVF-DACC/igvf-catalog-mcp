@@ -12,8 +12,8 @@ from ..services.edge_config import (
     get_edge_config,
     get_endpoints_for_entity_and_relationship,
 )
-from ..services.formatter import build_pagination_metadata, format_error
-from ..services.id_parser import IDParser
+from ..services.formatter import ToolError, build_pagination_metadata, format_error
+from ..services.id_parser import ID_LOOKUP_LIMIT, IDParser
 
 # Tool definition
 FIND_ASSOCIATIONS_TOOL = Tool(
@@ -25,6 +25,8 @@ FIND_ASSOCIATIONS_TOOL = Tool(
         "'physical' (protein-protein), 'functional' (pathways, GO terms), 'pharmacological' (drug-variant), "
         "'ld' (linkage disequilibrium), 'coding' (coding variant effects), 'transcription' (gene-transcript-protein). "
         'Returns detailed associations with p-values, effect sizes, and sources. '
+        'The limit applies to each data source (endpoint) separately, so a relationship backed by several '
+        'endpoints can return up to limit × endpoints associations; query_metadata lists the per-endpoint counts. '
         'Supports pagination — check _pagination.has_more in the response and use the page parameter '
         'to retrieve additional results.'
     ),
@@ -56,7 +58,11 @@ FIND_ASSOCIATIONS_TOOL = Tool(
             },
             'limit': {
                 'type': 'integer',
-                'description': 'Maximum number of results (default: 25)',
+                'description': (
+                    'Maximum results per data source (endpoint); with several endpoints, '
+                    'up to limit × endpoints rows (default: 25). Some endpoints have a lower maximum page size '
+                    '(see max_limit in list_sources); query_metadata reports limit_capped_to when it applies.'
+                ),
                 'minimum': 1,
                 'maximum': 500,
                 'default': 25,
@@ -83,6 +89,14 @@ EDGE_PARAM_ALIASES: dict[str, list[str]] = {
     'name': ['gene_name'],
     'term_id': ['phenotype_id', 'disease_id'],
     'protein_id': ['query'],
+    'dbxrefs': ['query'],
+}
+
+# Identifier types that some endpoints do not accept: (edge parameter, field of the looked-up node holding its value).
+# The identifier is looked up once, and such endpoints are queried once per value (e.g. per allele of an rsID).
+RESOLVED_EDGE_PARAMS: dict[str, tuple[str, str]] = {
+    'rsid': ('spdi', 'spdi'),
+    'dbxrefs': ('uniprot_name', 'uniprot_names'),
 }
 
 
@@ -210,30 +224,23 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         else:
             # Get endpoints for specific relationship type
             if relationship not in RELATIONSHIP_TYPE_MAPPING:
-                return [
-                    TextContent(
-                        type='text',
-                        text=f'Unknown relationship type: {relationship}. '
-                        f"Valid types: {', '.join(RELATIONSHIP_TYPE_MAPPING.keys())}, all",
-                    )
-                ]
+                raise ToolError(
+                    f'Unknown relationship type: {relationship}. '
+                    f"Valid types: {', '.join(RELATIONSHIP_TYPE_MAPPING.keys())}, all"
+                )
 
             endpoint_keys = get_endpoints_for_entity_and_relationship(
                 entity_type, relationship)
 
             if not endpoint_keys:
-                return [
-                    TextContent(
-                        type='text',
-                        text=f"Relationship type '{relationship}' not applicable to {entity_type} entities.",
-                    )
-                ]
+                raise ToolError(f"Relationship type '{relationship}' not applicable to {entity_type} entities.")
 
         # Query all applicable endpoints
         all_associations = []
         query_metadata = []
 
         client = get_client()
+        resolved_ids: list[str] | None = None
         for endpoint_key in endpoint_keys:
             edge_config = get_edge_config(endpoint_key)
             if not edge_config:
@@ -241,7 +248,13 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
             # The IDParser gives us the node lookup parameter, but each endpoint may expect a different name
             endpoint_param_name = resolve_edge_param(param_name, edge_config)
-            if endpoint_param_name is None:
+            resolution = RESOLVED_EDGE_PARAMS.get(param_name)
+            resolve = (
+                endpoint_param_name is None
+                and resolution is not None
+                and resolution[0] in edge_config.get('from_params', [])
+            )
+            if endpoint_param_name is None and not resolve:
                 query_metadata.append(
                     {
                         'endpoint': endpoint_key,
@@ -254,12 +267,35 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
             # Build query parameters
             try:
+                if resolve:
+                    endpoint_param_name, field = resolution
+                    if resolved_ids is None:
+                        nodes = await client.call(
+                            IDParser.get_client_method(entity_type),
+                            **{param_name: normalized_id, 'limit': ID_LOOKUP_LIMIT, 'page': 0},
+                        )
+                        resolved_ids = []
+                        for node in nodes:
+                            value = node.get(field) or []
+                            for resolved_id in value if isinstance(value, list) else [value]:
+                                if resolved_id not in resolved_ids:
+                                    resolved_ids.append(resolved_id)
+                    lookup_ids = resolved_ids
+                else:
+                    lookup_ids = [normalized_id]
+
                 params = build_query_params(
                     normalized_id, endpoint_param_name, edge_config, filters, limit, verbose, page
                 )
 
                 # Query the endpoint
-                associations = await client.call(edge_config['client_method'], **params)
+                associations = []
+                has_more = False
+                effective_limit = min(limit, edge_config.get('max_limit', 500))
+                for lookup_id in lookup_ids:
+                    rows = await client.call(edge_config['client_method'], **{**params, endpoint_param_name: lookup_id})
+                    has_more = has_more or len(rows) >= effective_limit
+                    associations.extend(rows)
 
                 # Add metadata to each association
                 for assoc in associations:
@@ -268,16 +304,19 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
                 all_associations.extend(associations)
 
-                effective_limit = min(limit, edge_config.get('max_limit', 500))
-                query_metadata.append(
-                    {
-                        'endpoint': endpoint_key,
-                        'path': edge_config['path'],
-                        'results_count': len(associations),
-                        '_pagination': build_pagination_metadata(associations, page, effective_limit),
-                        'params_used': {k: v for k, v in params.items() if k not in ['page']},
-                    }
-                )
+                metadata = {
+                    'endpoint': endpoint_key,
+                    'path': edge_config['path'],
+                    'results_count': len(associations),
+                    '_pagination': build_pagination_metadata(associations, page, effective_limit, has_more),
+                    'params_used': {k: v for k, v in params.items() if k not in ['page']},
+                }
+                if limit > effective_limit:
+                    metadata['limit_capped_to'] = effective_limit
+                if resolve:
+                    metadata['resolved_from'] = param_name
+                    metadata['params_used'][endpoint_param_name] = lookup_ids
+                query_metadata.append(metadata)
 
             except Exception as e:
                 # Log error but continue with other endpoints
@@ -289,6 +328,10 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     }
                 )
 
+        if query_metadata and all('error' in m for m in query_metadata):
+            errors = '; '.join(f"{m['endpoint']}: {m['error']}" for m in query_metadata)
+            raise ToolError(f'Error finding associations: {errors}')
+
         # Format response
         any_has_more = any(
             m.get('_pagination', {}).get('has_more', False)
@@ -297,7 +340,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         top_pagination: dict[str, Any] = {
             'current_page': page,
             'limit': limit,
-            'results_returned': len(all_associations[:limit]),
+            'results_returned': len(all_associations),
             'has_more': any_has_more,
         }
         if any_has_more:
@@ -311,7 +354,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             'relationship_type': relationship,
             'num_associations': len(all_associations),
             'query_metadata': query_metadata,
-            'associations': all_associations[:limit],
+            'associations': all_associations,
         }
 
         response_text = json.dumps(response_data, indent=2)
@@ -323,19 +366,11 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             )
         ]
 
+    except ToolError:
+        raise
     except ValueError as e:
         # ID parsing errors
-        return [
-            TextContent(
-                type='text',
-                text=format_error(e),
-            )
-        ]
+        raise ToolError(format_error(e)) from e
     except Exception as e:
         # API errors or other issues
-        return [
-            TextContent(
-                type='text',
-                text=f'Error finding associations: {format_error(e)}',
-            )
-        ]
+        raise ToolError(f'Error finding associations: {format_error(e)}') from e

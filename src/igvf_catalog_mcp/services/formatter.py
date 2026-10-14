@@ -3,7 +3,13 @@
 from typing import Any
 
 
-def build_pagination_metadata(results: list, page: int, limit: int) -> dict[str, Any]:
+class ToolError(Exception):
+    """Invalid input or a failed API request, returned to the client as a tool error (isError: true)."""
+
+
+def build_pagination_metadata(
+    results: list, page: int, limit: int, has_more: bool | None = None
+) -> dict[str, Any]:
     """
     Build pagination metadata to include in tool responses.
 
@@ -14,11 +20,13 @@ def build_pagination_metadata(results: list, page: int, limit: int) -> dict[str,
         results: The list of results returned from the API
         page: Current page number (0-indexed)
         limit: The limit used in the query
+        has_more: Whether more pages exist, for results merged from several queries. Defaults to the heuristic.
 
     Returns:
         Pagination metadata dict with has_more signal and next_page hint
     """
-    has_more = len(results) >= limit
+    if has_more is None:
+        has_more = len(results) >= limit
     meta: dict[str, Any] = {
         'current_page': page,
         'limit': limit,
