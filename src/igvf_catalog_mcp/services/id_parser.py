@@ -28,6 +28,22 @@ ENTITY_METHODS: dict[str, str] = {
     'pathway': 'pathways',
 }
 
+# Entity type for each accepted hint
+HINT_TYPES: dict[str, str] = {
+    **{entity_type: entity_type for entity_type in ENTITY_METHODS},
+    'disease': 'ontology',
+}
+
+# Lookup parameter used when a hinted identifier is a name rather than an ID
+NAME_PARAMS: dict[str, str] = {
+    'gene': 'name',
+    'protein': 'name',
+    'ontology': 'name',
+    'drug': 'name',
+    'complex': 'name',
+    'pathway': 'name',
+}
+
 # Page size for variant lookups, so that every allele of a multi-allelic rsID is returned
 VARIANT_LOOKUP_LIMIT = 100
 
@@ -94,17 +110,25 @@ class IDParser:
             argument of the entity's lookup method (see get_client_method)
 
         Raises:
-            ValueError: If the identifier format is not recognized
+            ValueError: If the identifier format is not recognized, or the hint is unknown or does not
+                fit the identifier
         """
         # Normalize identifier
         identifier = identifier.strip()
 
-        # If hint is provided and matches, use it
+        # A hint selects the entity type; identifiers that are not IDs of that type are looked up by name
         if hint:
-            hint_lower = hint.lower()
+            hinted_type = HINT_TYPES.get(hint.lower())
+            if hinted_type is None:
+                raise ValueError(f"Unknown hint: '{hint}'. Valid hints: {', '.join(HINT_TYPES)}")
             for pattern, entity_type, param_name in cls.PATTERNS:
-                if entity_type == hint_lower and re.match(pattern, identifier, re.IGNORECASE):
+                if entity_type == hinted_type and re.match(pattern, identifier, re.IGNORECASE):
                     return entity_type, param_name  # type: ignore
+            if hinted_type in NAME_PARAMS:
+                return hinted_type, NAME_PARAMS[hinted_type]  # type: ignore
+            raise ValueError(
+                f"'{identifier}' is not a {hint} identifier, and {hint} entities cannot be looked up by name."
+            )
 
         # Try pattern matching
         for pattern, entity_type, param_name in cls.PATTERNS:

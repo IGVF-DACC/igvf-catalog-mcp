@@ -134,6 +134,32 @@ def test_detect_with_hint():
     assert param_name == 'name'
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'hint', 'expected'),
+    [
+        ('CTCF', 'protein', ('protein', 'name')),
+        ('P49711', 'protein', ('protein', 'dbxrefs')),
+        ('lupus', 'disease', ('ontology', 'name')),
+        ('MONDO_0007915', 'disease', ('ontology', 'term_id')),
+        ('warfarin', 'drug', ('drug', 'name')),
+        ('rs12345', 'variant', ('variant', 'rsid')),
+        ('ENSG00000139618', 'gene', ('gene', 'gene_id')),
+    ],
+)
+def test_hint_selects_entity_type(identifier, hint, expected):
+    assert IDParser.detect_entity_type(identifier, hint=hint) == expected
+
+
+def test_hint_without_name_lookup_rejects_names():
+    with pytest.raises(ValueError, match="'BRCA1' is not a variant identifier"):
+        IDParser.detect_entity_type('BRCA1', hint='variant')
+
+
+def test_unknown_hint():
+    with pytest.raises(ValueError, match="Unknown hint: 'cell'"):
+        IDParser.detect_entity_type('BRCA1', hint='cell')
+
+
 def test_invalid_identifier():
     """Test that invalid identifiers raise ValueError."""
     with pytest.raises(ValueError, match='Could not detect entity type'):

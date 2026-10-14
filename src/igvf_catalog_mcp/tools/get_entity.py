@@ -28,7 +28,10 @@ GET_ENTITY_TOOL = Tool(
             },
             'hint': {
                 'type': 'string',
-                'description': 'Optional hint about entity type (gene, variant, protein, etc.)',
+                'description': (
+                    'Optional entity type. With a gene, protein, disease, drug or complex hint, an identifier '
+                    "that is not an ID of that type is looked up by name (e.g. 'CTCF' with hint 'protein')."
+                ),
                 'enum': ['gene', 'variant', 'protein', 'transcript', 'disease', 'drug', 'complex'],
             },
         },

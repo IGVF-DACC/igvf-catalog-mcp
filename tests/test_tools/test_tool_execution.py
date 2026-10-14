@@ -70,6 +70,25 @@ async def test_get_entity_gene_symbol_resembling_accession(fake_catalog, sample_
     assert fake_catalog.params_for('/proteins') == []
 
 
+async def test_get_entity_hint_looks_up_protein_by_name(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP00000494538', 'name': 'CTCF'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein'}))
+
+    assert data[0]['_type'] == 'protein'
+    assert fake_catalog.params_for('/proteins') == [{'name': 'CTCF', 'page': '0'}]
+    assert fake_catalog.params_for('/genes') == []
+
+
+async def test_get_entity_hint_looks_up_disease_by_name(fake_catalog):
+    fake_catalog.add('/ontology-terms', [{'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'lupus', 'hint': 'disease'}))
+
+    assert data[0]['_type'] == 'ontology'
+    assert fake_catalog.params_for('/ontology-terms') == [{'name': 'lupus', 'page': '0'}]
+
+
 async def test_get_entity_not_found(fake_catalog):
     result = await call_tool('igvf_catalog_get_entity', {'id': 'ENSG00000000001'})
 
@@ -485,6 +504,7 @@ async def call_tool_request(name, arguments):
         ('igvf_catalog_resolve_id', {'id': '???'}, 'Could not detect entity type'),
         ('igvf_catalog_find_ld', {'variant_id': 'BRCA1'}, 'Expected a variant ID'),
         ('igvf_catalog_list_sources', {'endpoint': 'nope'}, 'Unknown endpoint: nope'),
+        ('igvf_catalog_get_entity', {'id': 'BRCA1', 'hint': 'variant'}, 'is not a variant identifier'),
     ],
 )
 async def test_invalid_input_is_a_tool_error(fake_catalog, name, arguments, message):
