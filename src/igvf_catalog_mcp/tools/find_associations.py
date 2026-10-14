@@ -13,7 +13,7 @@ from ..services.edge_config import (
     get_endpoints_for_entity_and_relationship,
 )
 from ..services.formatter import ToolError, build_pagination_metadata, format_error
-from ..services.id_parser import ID_LOOKUP_LIMIT, IDParser
+from ..services.id_parser import IDParser
 
 # Tool definition
 FIND_ASSOCIATIONS_TOOL = Tool(
@@ -279,10 +279,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 if resolve:
                     endpoint_param_name, field = resolution
                     if resolved_ids is None:
-                        nodes = await client.call(
-                            IDParser.get_client_method(entity_type),
-                            **{param_name: normalized_id, 'limit': ID_LOOKUP_LIMIT, 'page': 0},
-                        )
+                        nodes = await IDParser.lookup_all(entity_type, param_name, normalized_id)
                         resolved_ids = []
                         for node in nodes:
                             value = node.get(field) or []

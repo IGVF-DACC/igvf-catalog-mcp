@@ -8,6 +8,8 @@
 - **Gene symbols and pathways use the node endpoint parameter names**: `IDParser` returns `name` for gene symbols and `id` for Reactome pathways, which is what `/genes` and `/pathways` accept. `find_associations` maps them to the edge parameters (`gene_name`, …).
 - **Versioning**: the version is read from `src/igvf_catalog_mcp/__init__.py` and follows the IGVF Catalog version (see README). Added the `igvf-catalog-mcp` console script, so the server runs with `uvx igvf-catalog-mcp`.
 - **Dependencies**: removed `httpx` and `pydantic`; `mcp` is pinned below 2.0, whose server API this package does not support.
+- **`get_entity` is paginated**: it accepts `limit` and `page` and returns `{"_pagination": …, "entity_type": …, "entities": [...]}` instead of a plain list, so name lookups that match many entities can be paged through. A limit above the entity type's maximum page size is reported as `limit_capped_to`.
+- **Identifier resolution fetches every page**: resolving an rsID to its alleles (`resolve_id`, and `find_associations` for endpoints without `rsid`) or a UniProt accession to its UniProt names pages through all results instead of using a fixed limit of 100.
 
 ### Fixed
 - **Endpoint parameters and filter values re-verified against the catalog OpenAPI spec**:

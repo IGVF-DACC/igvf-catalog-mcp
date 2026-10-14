@@ -60,6 +60,7 @@ Look up any entity by ID with automatic type detection.
 {"id": "BRCA1"}
 {"id": "rs12345"}
 {"id": "ENSG00000141510"}
+{"id": "lupus", "hint": "disease", "limit": 50, "page": 1}
 ```
 
 ### 2. `igvf_catalog_search_region`
@@ -74,6 +75,7 @@ Discover relationships between entities.
 
 ```json
 {"entity_id": "TP53", "relationship": "regulatory"}
+{"entity_id": "lupus", "relationship": "genetic", "hint": "disease"}
 ```
 
 ### 4. `igvf_catalog_find_ld`

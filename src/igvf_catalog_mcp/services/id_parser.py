@@ -46,8 +46,20 @@ NAME_PARAMS: dict[str, str] = {
     'pathway': 'name',
 }
 
-# Page size for identifier lookups, so that every allele of an rsID or isoform of a UniProt accession is returned
-ID_LOOKUP_LIMIT = 100
+# Maximum page size of each lookup method. The complexes and studies methods take no limit and return
+# API_PAGE_SIZE results per page.
+ENTITY_MAX_LIMITS: dict[str, int] = {
+    'gene': 500,
+    'transcript': 500,
+    'protein': 50,
+    'variant': 500,
+    'ontology': 1000,
+    'drug': 100,
+    'pathway': 500,
+}
+
+# Default page size of the IGVF Catalog API
+API_PAGE_SIZE = 25
 
 # Gene symbol format; some symbols (e.g. P2RY12, B3GAT1) are also valid UniProt accessions
 GENE_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
@@ -173,6 +185,25 @@ class IDParser:
                 return 'gene', 'name', normalized_id
 
         return entity_type, param_name, normalized_id
+
+    @classmethod
+    async def lookup_all(cls, entity_type: EntityType, param_name: str, identifier: str) -> list[dict]:
+        """
+        Look up every entity matching an identifier, across all pages.
+
+        Args:
+            entity_type: The type of entity
+            param_name: The lookup parameter
+            identifier: The normalized identifier
+
+        Returns:
+            All matching entities (e.g. every allele of an rsID)
+        """
+        return await get_client().call_all(
+            cls.get_client_method(entity_type),
+            ENTITY_MAX_LIMITS.get(entity_type, API_PAGE_SIZE),
+            **{param_name: identifier},
+        )
 
     @classmethod
     def get_client_method(cls, entity_type: EntityType) -> str:

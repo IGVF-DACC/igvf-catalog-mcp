@@ -108,6 +108,27 @@ async def test_call_unknown_method():
         await client.call('not_a_method')
 
 
+async def test_call_all_fetches_until_short_page():
+    client = IGVFCatalogClient(base_url='http://catalog.test')
+    pages = {0: [{'i': 0}, {'i': 1}], 1: [{'i': 2}, {'i': 3}], 2: [{'i': 4}]}
+    client.call = AsyncMock(side_effect=lambda method_name, page, **kwargs: pages[page])
+
+    results = await client.call_all('variants', 2, rsid='rs1')
+
+    assert results == [{'i': i} for i in range(5)]
+    assert [c.kwargs for c in client.call.call_args_list] == [
+        {'rsid': 'rs1', 'limit': 2, 'page': page} for page in range(3)
+    ]
+
+
+async def test_call_all_without_limit_parameter():
+    client = IGVFCatalogClient(base_url='http://catalog.test')
+    client.call = AsyncMock(return_value=[{'i': 0}])
+
+    assert await client.call_all('complexes', 25, name='x') == [{'i': 0}]
+    client.call.assert_awaited_once_with('complexes', name='x', page=0)
+
+
 async def test_get_client_is_shared_and_closable(monkeypatch):
     """Test the process-wide client is created once and reset on close."""
     monkeypatch.setattr(api_client, '_client', None)

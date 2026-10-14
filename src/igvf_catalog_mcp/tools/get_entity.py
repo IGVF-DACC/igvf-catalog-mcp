@@ -1,12 +1,13 @@
 """Get entity tool - universal entity lookup with auto-detection."""
 
+import json
 from typing import Any
 
 from mcp.types import TextContent, Tool
 
-from ..services.api_client import get_client
-from ..services.formatter import ToolError, add_entity_type, format_error
-from ..services.id_parser import IDParser
+from ..services.api_client import get_client, method_params
+from ..services.formatter import ToolError, add_entity_type, build_pagination_metadata, format_error
+from ..services.id_parser import API_PAGE_SIZE, ENTITY_MAX_LIMITS, IDParser
 
 # Tool definition
 GET_ENTITY_TOOL = Tool(
@@ -17,7 +18,9 @@ GET_ENTITY_TOOL = Tool(
         'proteins (ENSP00000493376, P49711), transcripts (ENST00000443707), '
         'diseases (Orphanet_586, MONDO_0008199), drugs (PA448497), '
         'complexes (CPX-9), and more. '
-        'Returns detailed information about the entity.'
+        'Returns detailed information about the entity. '
+        'Name lookups (via hint) can match many entities: check _pagination.has_more in the response and use '
+        'the page parameter to retrieve additional results.'
     ),
     inputSchema={
         'type': 'object',
@@ -34,6 +37,21 @@ GET_ENTITY_TOOL = Tool(
                 ),
                 'enum': ['gene', 'variant', 'protein', 'transcript', 'disease', 'drug', 'complex'],
             },
+            'limit': {
+                'type': 'integer',
+                'description': (
+                    'Maximum number of results (default: 25). Each entity type has a maximum page size; '
+                    '_pagination reports limit_capped_to when it applies.'
+                ),
+                'minimum': 1,
+                'default': 25,
+            },
+            'page': {
+                'type': 'integer',
+                'description': 'Page number (0-indexed). Use when previous results indicated more data is available.',
+                'minimum': 0,
+                'default': 0,
+            },
         },
         'required': ['id'],
     },
@@ -45,7 +63,7 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
     Execute the get_entity tool.
 
     Args:
-        arguments: Tool arguments with 'id' and optional 'hint'
+        arguments: Tool arguments with 'id' and optional 'hint', 'limit' and 'page'
 
     Returns:
         List of TextContent with entity information or error message
@@ -53,18 +71,24 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
     try:
         entity_id = arguments['id']
         hint = arguments.get('hint')
+        limit = arguments.get('limit', 25)
+        page = arguments.get('page', 0)
 
         # Detect entity type and normalize the identifier
         entity_type, param_name, normalized_id = await IDParser.identify(entity_id, hint)
 
-        # Query the API
-        entities = await get_client().call(
-            IDParser.get_client_method(entity_type),
-            **{param_name: normalized_id, 'page': 0},
-        )
+        # Query the API; methods without a limit parameter return pages of the API's default size
+        method_name = IDParser.get_client_method(entity_type)
+        query = {param_name: normalized_id, 'page': page}
+        if 'limit' in method_params(method_name):
+            effective_limit = min(limit, ENTITY_MAX_LIMITS[entity_type])
+            query['limit'] = effective_limit
+        else:
+            effective_limit = API_PAGE_SIZE
+        entities = await get_client().call(method_name, **query)
 
         # Format response
-        if not entities:
+        if not entities and page == 0:
             return [
                 TextContent(
                     type='text',
@@ -72,12 +96,16 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
                 )
             ]
 
-        # Add entity type to results
-        results = [add_entity_type(entity, entity_type) for entity in entities]
+        pagination = build_pagination_metadata(entities, page, effective_limit)
+        if limit != effective_limit:
+            pagination['limit_capped_to'] = effective_limit
 
-        # Format as JSON
-        import json
-        response_text = json.dumps(results, indent=2)
+        response_data = {
+            '_pagination': pagination,
+            'entity_type': entity_type,
+            'entities': [add_entity_type(entity, entity_type) for entity in entities],
+        }
+        response_text = json.dumps(response_data, indent=2)
 
         return [
             TextContent(

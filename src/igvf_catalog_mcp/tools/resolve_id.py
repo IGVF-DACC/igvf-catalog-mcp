@@ -7,7 +7,7 @@ from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client
 from ..services.formatter import ToolError, format_error
-from ..services.id_parser import ID_LOOKUP_LIMIT, IDParser
+from ..services.id_parser import IDParser
 
 # Tool definition
 RESOLVE_ID_TOOL = Tool(
@@ -51,11 +51,13 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
         # Detect entity type
         entity_type, param_name, normalized_id = await IDParser.identify(entity_id)
 
-        # Query the API to get the full entity
-        query = {param_name: normalized_id, 'page': 0}
+        # Query the API to get the full entity, and every allele of a variant
         if entity_type == 'variant':
-            query['limit'] = ID_LOOKUP_LIMIT
-        entities = await get_client().call(IDParser.get_client_method(entity_type), **query)
+            entities = await IDParser.lookup_all(entity_type, param_name, normalized_id)
+        else:
+            entities = await get_client().call(
+                IDParser.get_client_method(entity_type), **{param_name: normalized_id, 'page': 0}
+            )
 
         if not entities:
             return [
