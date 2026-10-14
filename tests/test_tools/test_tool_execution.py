@@ -22,8 +22,8 @@ async def test_get_entity_gene_symbol(fake_catalog, sample_gene_data):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'brca2'}))
 
-    assert data == [{'_type': 'gene', **sample_gene_data}]
-    assert fake_catalog.params_for('/genes') == [{'name': 'BRCA2', 'page': '0'}]
+    assert data['entities'] == [{'_type': 'gene', **sample_gene_data}]
+    assert fake_catalog.params_for('/genes') == [{'name': 'BRCA2', 'page': '0', 'limit': '25'}]
 
 
 async def test_get_entity_pathway_uses_id(fake_catalog):
@@ -31,9 +31,9 @@ async def test_get_entity_pathway_uses_id(fake_catalog):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'R-HSA-164843'}))
 
-    assert data[0]['_type'] == 'pathway'
-    assert data[0]['_id'] == 'R-HSA-164843'
-    assert fake_catalog.params_for('/pathways') == [{'id': 'R-HSA-164843', 'page': '0'}]
+    assert data['entities'][0]['_type'] == 'pathway'
+    assert data['entities'][0]['_id'] == 'R-HSA-164843'
+    assert fake_catalog.params_for('/pathways') == [{'id': 'R-HSA-164843', 'page': '0', 'limit': '25'}]
 
 
 async def test_get_entity_ontology_term(fake_catalog):
@@ -41,8 +41,8 @@ async def test_get_entity_ontology_term(fake_catalog):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'MONDO:0008199'}))
 
-    assert data[0]['_type'] == 'ontology'
-    assert fake_catalog.params_for('/ontology-terms') == [{'term_id': 'MONDO_0008199', 'page': '0'}]
+    assert data['entities'][0]['_type'] == 'ontology'
+    assert fake_catalog.params_for('/ontology-terms') == [{'term_id': 'MONDO_0008199', 'page': '0', 'limit': '25'}]
 
 
 async def test_get_entity_uniprot_accession_uses_dbxrefs(fake_catalog):
@@ -50,14 +50,14 @@ async def test_get_entity_uniprot_accession_uses_dbxrefs(fake_catalog):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'P49711'}))
 
-    assert data[0]['_type'] == 'protein'
-    assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'P49711', 'page': '0'}]
+    assert data['entities'][0]['_type'] == 'protein'
+    assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'P49711', 'page': '0', 'limit': '25'}]
 
 
 async def test_get_entity_uniprot_isoform_uses_protein_id(fake_catalog):
     await call_tool('igvf_catalog_get_entity', {'id': 'P49711-1'})
 
-    assert fake_catalog.params_for('/proteins') == [{'protein_id': 'P49711-1', 'page': '0'}]
+    assert fake_catalog.params_for('/proteins') == [{'protein_id': 'P49711-1', 'page': '0', 'limit': '25'}]
 
 
 async def test_get_entity_gene_symbol_resembling_accession(fake_catalog, sample_gene_data):
@@ -65,8 +65,8 @@ async def test_get_entity_gene_symbol_resembling_accession(fake_catalog, sample_
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'TCF7L2'}))
 
-    assert data[0]['_type'] == 'gene'
-    assert fake_catalog.params_for('/genes') == [{'name': 'TCF7L2', 'page': '0'}]
+    assert data['entities'][0]['_type'] == 'gene'
+    assert fake_catalog.params_for('/genes') == [{'name': 'TCF7L2', 'page': '0', 'limit': '25'}]
     assert fake_catalog.params_for('/proteins') == []
 
 
@@ -75,8 +75,8 @@ async def test_get_entity_hint_looks_up_protein_by_name(fake_catalog):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein'}))
 
-    assert data[0]['_type'] == 'protein'
-    assert fake_catalog.params_for('/proteins') == [{'name': 'CTCF', 'page': '0'}]
+    assert data['entities'][0]['_type'] == 'protein'
+    assert fake_catalog.params_for('/proteins') == [{'name': 'CTCF', 'page': '0', 'limit': '25'}]
     assert fake_catalog.params_for('/genes') == []
 
 
@@ -85,8 +85,47 @@ async def test_get_entity_hint_looks_up_disease_by_name(fake_catalog):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'lupus', 'hint': 'disease'}))
 
-    assert data[0]['_type'] == 'ontology'
-    assert fake_catalog.params_for('/ontology-terms') == [{'name': 'lupus', 'page': '0'}]
+    assert data['entities'][0]['_type'] == 'ontology'
+    assert fake_catalog.params_for('/ontology-terms') == [{'name': 'lupus', 'page': '0', 'limit': '25'}]
+
+
+async def test_get_entity_paginates_name_lookups(fake_catalog):
+    fake_catalog.add('/ontology-terms', [{'term_id': 'MONDO_0004670'}, {'term_id': 'MONDO_0019560'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_get_entity', {'id': 'lupus', 'hint': 'disease', 'limit': 2, 'page': 1})
+    )
+
+    assert len(data['entities']) == 2
+    assert data['_pagination']['has_more'] is True
+    assert data['_pagination']['next_page'] == 2
+    assert fake_catalog.params_for('/ontology-terms') == [{'name': 'lupus', 'page': '1', 'limit': '2'}]
+
+
+async def test_get_entity_reports_capped_limit(fake_catalog):
+    await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'limit': 200})
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'CPX-9', 'limit': 200})
+
+    assert fake_catalog.params_for('/proteins') == [{'name': 'CTCF', 'page': '0', 'limit': '50'}]
+    assert fake_catalog.params_for('/complexes') == [{'complex_id': 'CPX-9', 'page': '0'}]
+    assert result[0].text == "No complex found with complex_id='CPX-9'"
+
+
+async def test_get_entity_capped_limit_in_pagination(fake_catalog):
+    fake_catalog.add('/complexes', [{'_id': 'CPX-9'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CPX-9', 'limit': 50}))
+
+    assert data['_pagination']['limit'] == 25
+    assert data['_pagination']['limit_capped_to'] == 25
+    assert data['_pagination']['has_more'] is False
+
+
+async def test_get_entity_empty_later_page(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'BRCA1', 'page': 3}))
+
+    assert data['entities'] == []
+    assert data['_pagination']['has_more'] is False
 
 
 async def test_get_entity_not_found(fake_catalog):
@@ -233,7 +272,7 @@ async def test_find_associations_uniprot_accession_uses_dbxrefs(fake_catalog):
 
     assert data['num_associations'] == 2
     assert fake_catalog.params_for('/proteins/proteins') == [{'dbxrefs': 'P49711', 'page': '0', 'limit': '25'}]
-    assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'P49711', 'page': '0', 'limit': '100'}]
+    assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'P49711', 'limit': '50', 'page': '0'}]
     assert fake_catalog.params_for('/proteins/complexes') == [
         {'uniprot_name': 'CTCF_HUMAN', 'page': '0', 'limit': '25'}
     ]
@@ -254,7 +293,7 @@ async def test_find_associations_rsid_resolved_to_spdi_for_coding(fake_catalog):
         await call_tool('igvf_catalog_find_associations', {'entity_id': 'rs738409', 'relationship': 'coding'})
     )
 
-    assert fake_catalog.params_for('/variants') == [{'rsid': 'rs738409', 'page': '0', 'limit': '100'}]
+    assert fake_catalog.params_for('/variants') == [{'rsid': 'rs738409', 'limit': '500', 'page': '0'}]
     assert fake_catalog.params_for('/variants/coding-variants') == [
         {'spdi': 'NC_000022.11:43928846:C:G', 'page': '0', 'limit': '25'},
         {'spdi': 'NC_000022.11:43928846:C:T', 'page': '0', 'limit': '25'},
@@ -282,6 +321,67 @@ async def test_find_associations_reports_capped_limit(fake_catalog):
     assert metadata['genes_genes']['params_used']['limit'] == 100
     assert 'limit_capped_to' not in metadata['genes_variants']
     assert fake_catalog.params_for('/genes/genes') == [{'gene_name': 'BRCA1', 'page': '0', 'limit': '100'}]
+
+
+async def test_find_associations_uppercase_rsid_is_normalized(fake_catalog):
+    fake_catalog.add('/variants', [{'spdi': 'NC_000022.11:43928846:C:G'}])
+    fake_catalog.add('/variants/coding-variants', [{'coding_variant': 'coding_variants/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'RS738409', 'relationship': 'coding'})
+    )
+
+    assert data['entity_id'] == 'rs738409'
+    assert data['num_associations'] == 1
+    assert fake_catalog.params_for('/variants')[0]['rsid'] == 'rs738409'
+
+
+async def test_find_associations_unresolved_rsid_is_reported(fake_catalog):
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'rs1', 'relationship': 'coding'})
+    )
+
+    metadata = data['query_metadata'][0]
+    assert metadata['results_count'] == 0
+    assert metadata['note'] == "No variant found with rsid='rs1', so this endpoint was not queried."
+    assert fake_catalog.params_for('/variants/coding-variants') == []
+
+
+async def test_find_associations_gene_symbol_shaped_like_uniprot_accession(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000169313', 'name': 'P2RY12'}])
+    fake_catalog.add('/genes/variants', [{'variant': 'variants/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'P2RY12', 'relationship': 'regulatory'})
+    )
+
+    assert data['entity_type'] == 'gene'
+    assert fake_catalog.params_for('/genes/variants') == [{'gene_name': 'P2RY12', 'page': '0', 'limit': '25'}]
+
+
+async def test_find_associations_hint_selects_protein(fake_catalog):
+    await call_tool(
+        'igvf_catalog_find_associations', {'entity_id': 'P2RY12', 'relationship': 'physical', 'hint': 'protein'}
+    )
+
+    assert fake_catalog.params_for('/genes') == []
+    assert fake_catalog.params_for('/proteins/proteins') == [{'dbxrefs': 'P2RY12', 'page': '0', 'limit': '25'}]
+
+
+async def test_find_associations_hint_disease_name(fake_catalog):
+    fake_catalog.add('/phenotypes/variants', [{'variant': 'variants/x'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'lupus', 'relationship': 'genetic', 'hint': 'disease'}
+        )
+    )
+
+    assert data['entity_type'] == 'ontology'
+    assert fake_catalog.params_for('/phenotypes/variants') == [
+        {'phenotype_name': 'lupus', 'page': '0', 'limit': '25'}
+    ]
+    assert fake_catalog.params_for('/diseases/genes') == [{'disease_name': 'lupus', 'page': '0', 'limit': '25'}]
 
 
 async def test_find_associations_ontology_term(fake_catalog):
@@ -427,7 +527,7 @@ async def test_resolve_id_variant(fake_catalog, sample_variant_data):
          'ref': 'G', 'alt': 'A'}
     ]
     assert 'note' not in data
-    assert fake_catalog.params_for('/variants') == [{'ca_id': 'CA6028682', 'page': '0', 'limit': '100'}]
+    assert fake_catalog.params_for('/variants') == [{'ca_id': 'CA6028682', 'limit': '500', 'page': '0'}]
 
 
 async def test_resolve_id_multi_allelic_rsid(fake_catalog):
@@ -444,7 +544,7 @@ async def test_resolve_id_multi_allelic_rsid(fake_catalog):
     assert [a['spdi'] for a in data['alleles']] == ['NC_000019.10:19268739:C:A', 'NC_000019.10:19268739:C:T']
     assert [a['ca_id'] for a in data['alleles']] == ['CA404925740', 'CA020130']
     assert 'multi-allelic' in data['note']
-    assert fake_catalog.params_for('/variants') == [{'rsid': 'rs58542926', 'page': '0', 'limit': '100'}]
+    assert fake_catalog.params_for('/variants') == [{'rsid': 'rs58542926', 'limit': '500', 'page': '0'}]
 
 
 async def test_resolve_id_gene(fake_catalog, sample_gene_data):

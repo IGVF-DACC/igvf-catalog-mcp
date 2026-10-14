@@ -3,6 +3,8 @@
 import re
 from typing import Literal
 
+from .api_client import get_client
+
 EntityType = Literal[
     'gene',
     'transcript',
@@ -44,8 +46,23 @@ NAME_PARAMS: dict[str, str] = {
     'pathway': 'name',
 }
 
-# Page size for identifier lookups, so that every allele of an rsID or isoform of a UniProt accession is returned
-ID_LOOKUP_LIMIT = 100
+# Maximum page size of each lookup method. The complexes and studies methods take no limit and return
+# API_PAGE_SIZE results per page.
+ENTITY_MAX_LIMITS: dict[str, int] = {
+    'gene': 500,
+    'transcript': 500,
+    'protein': 50,
+    'variant': 500,
+    'ontology': 1000,
+    'drug': 100,
+    'pathway': 500,
+}
+
+# Default page size of the IGVF Catalog API
+API_PAGE_SIZE = 25
+
+# Gene symbol format; some symbols (e.g. P2RY12, B3GAT1) are also valid UniProt accessions
+GENE_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
 
 # UniProt accession format (https://www.uniprot.org/help/accession_numbers)
 UNIPROT_ACCESSION = r'(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})'
@@ -73,7 +90,7 @@ class IDParser:
         (r'^NC_\d+\.\d+:g\.\d+[A-Z]>[A-Z]$', 'variant', 'hgvs'),
         (r'^CA\d+$', 'variant', 'ca_id'),
         # Ontology terms
-        (r'^Orphanet_\d+$', 'ontology', 'term_id'),
+        (r'^Orphanet[_:]\d+$', 'ontology', 'term_id'),
         (r'^MONDO[_:]\d+$', 'ontology', 'term_id'),
         (r'^EFO[_:]\d+$', 'ontology', 'term_id'),
         (r'^GO[_:]\d+$', 'ontology', 'term_id'),
@@ -91,7 +108,7 @@ class IDParser:
         # Pathways
         (r'^R-[A-Z]{3}-\d+$', 'pathway', 'id'),
         # Gene symbols (must be last, as it's most ambiguous)
-        (r'^[A-Z][A-Z0-9]{1,9}$', 'gene', 'name'),
+        (GENE_SYMBOL, 'gene', 'name'),
     ]
 
     @classmethod
@@ -142,6 +159,53 @@ class IDParser:
         )
 
     @classmethod
+    async def identify(cls, identifier: str, hint: str | None = None) -> tuple[EntityType, str, str]:
+        """
+        Detect the entity type of an identifier and normalize it for API queries.
+
+        Without a hint, an identifier that is both a UniProt accession and a gene symbol is a gene
+        if a gene with exactly that symbol exists, and a protein otherwise.
+
+        Args:
+            identifier: The ID string to parse
+            hint: Optional hint about the entity type
+
+        Returns:
+            Tuple of (entity_type, parameter_name, normalized_identifier)
+
+        Raises:
+            ValueError: As detect_entity_type
+        """
+        entity_type, param_name = cls.detect_entity_type(identifier, hint)
+        normalized_id = cls.normalize_identifier(identifier, entity_type, param_name)
+
+        if hint is None and param_name == 'dbxrefs' and re.match(GENE_SYMBOL, normalized_id):
+            genes = await get_client().call(ENTITY_METHODS['gene'], name=normalized_id, page=0)
+            if any(gene.get('name') == normalized_id for gene in genes):
+                return 'gene', 'name', normalized_id
+
+        return entity_type, param_name, normalized_id
+
+    @classmethod
+    async def lookup_all(cls, entity_type: EntityType, param_name: str, identifier: str) -> list[dict]:
+        """
+        Look up every entity matching an identifier, across all pages.
+
+        Args:
+            entity_type: The type of entity
+            param_name: The lookup parameter
+            identifier: The normalized identifier
+
+        Returns:
+            All matching entities (e.g. every allele of an rsID)
+        """
+        return await get_client().call_all(
+            cls.get_client_method(entity_type),
+            ENTITY_MAX_LIMITS.get(entity_type, API_PAGE_SIZE),
+            **{param_name: identifier},
+        )
+
+    @classmethod
     def get_client_method(cls, entity_type: EntityType) -> str:
         """
         Get the generated client method used to look up an entity type.
@@ -155,28 +219,36 @@ class IDParser:
         return ENTITY_METHODS[entity_type]
 
     @classmethod
-    def normalize_identifier(cls, identifier: str, entity_type: EntityType) -> str:
+    def normalize_identifier(cls, identifier: str, entity_type: EntityType, param_name: str) -> str:
         """
         Normalize an identifier for API queries.
+
+        IDs are matched case-insensitively, so they are converted to the case the catalog stores.
+        Names are passed through, except gene symbols, which are uppercase.
 
         Args:
             identifier: The raw identifier
             entity_type: The detected entity type
+            param_name: The lookup parameter returned by detect_entity_type
 
         Returns:
             Normalized identifier
         """
         identifier = identifier.strip()
 
-        # Normalize ontology term separators to underscores
+        if param_name == 'name':
+            if entity_type == 'gene':
+                identifier = identifier.upper()
+            return identifier
+
+        if param_name == 'rsid':
+            return identifier.lower()
+
+        identifier = identifier.upper()
+        if param_name == 'hgvs':
+            identifier = identifier.replace(':G.', ':g.')
         if entity_type == 'ontology':
-            identifier = identifier.replace(':', '_')
-
-        if entity_type == 'protein' and re.match(rf'^{UNIPROT_ACCESSION}(-\d+)?$', identifier, re.IGNORECASE):
-            identifier = identifier.upper()
-
-        # Convert gene symbols to uppercase
-        if entity_type == 'gene' and re.match(r'^[A-Z][A-Z0-9]{1,9}$', identifier, re.IGNORECASE):
-            identifier = identifier.upper()
+            # Ontology term separators are stored as underscores
+            identifier = identifier.replace(':', '_').replace('ORPHANET_', 'Orphanet_')
 
         return identifier
