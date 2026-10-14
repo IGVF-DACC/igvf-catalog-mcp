@@ -37,6 +37,15 @@ FIND_ASSOCIATIONS_TOOL = Tool(
                 'type': 'string',
                 'description': "Starting entity ID (e.g., 'TP53', 'rs12345', 'ENSG00000141510')",
             },
+            'hint': {
+                'type': 'string',
+                'description': (
+                    'Optional entity type of entity_id. With a gene, protein, disease, drug or complex hint, '
+                    "an identifier that is not an ID of that type is used as a name (e.g. 'lupus' with hint "
+                    "'disease'). Also selects the type of IDs that fit several, e.g. 'P2RY12' with hint 'protein'."
+                ),
+                'enum': ['gene', 'variant', 'protein', 'transcript', 'disease', 'drug', 'complex'],
+            },
             'relationship': {
                 'type': 'string',
                 'description': 'Type of relationship to find',
@@ -86,7 +95,7 @@ FIND_ASSOCIATIONS_TOOL = Tool(
 
 # Edge parameter names to try when an endpoint does not accept the node lookup parameter
 EDGE_PARAM_ALIASES: dict[str, list[str]] = {
-    'name': ['gene_name'],
+    'name': ['gene_name', 'protein_name', 'phenotype_name', 'disease_name', 'drug_name', 'complex_name'],
     'term_id': ['phenotype_id', 'disease_id'],
     'protein_id': ['query'],
     'dbxrefs': ['query'],
@@ -209,10 +218,10 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         limit = arguments.get('limit', 25)
         verbose = arguments.get('verbose', False)
         page = arguments.get('page', 0)
+        hint = arguments.get('hint')
 
-        # Detect entity type
-        entity_type, param_name = IDParser.detect_entity_type(entity_id)
-        normalized_id = IDParser.normalize_identifier(entity_id, entity_type, param_name)
+        # Detect entity type and normalize the identifier
+        entity_type, param_name, normalized_id = await IDParser.identify(entity_id, hint)
 
         # Determine which endpoints to query
         if relationship == 'all':

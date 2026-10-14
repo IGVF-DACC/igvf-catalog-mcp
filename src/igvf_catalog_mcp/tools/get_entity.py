@@ -54,11 +54,8 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
         entity_id = arguments['id']
         hint = arguments.get('hint')
 
-        # Detect entity type
-        entity_type, param_name = IDParser.detect_entity_type(entity_id, hint)
-
-        # Normalize the identifier
-        normalized_id = IDParser.normalize_identifier(entity_id, entity_type, param_name)
+        # Detect entity type and normalize the identifier
+        entity_type, param_name, normalized_id = await IDParser.identify(entity_id, hint)
 
         # Query the API
         entities = await get_client().call(

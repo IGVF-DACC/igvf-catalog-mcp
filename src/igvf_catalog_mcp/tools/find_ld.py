@@ -91,15 +91,13 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
         page = arguments.get('page', 0)
 
         # Detect variant type and normalize ID
-        entity_type, param_name = IDParser.detect_entity_type(variant_id)
+        entity_type, param_name, normalized_id = await IDParser.identify(variant_id)
 
         if entity_type != 'variant':
             raise ToolError(
                 f'Error: Expected a variant ID, but got {entity_type}. '
                 f'Please provide a valid variant identifier (rsID, SPDI, HGVS, or ClinGen Allele ID).'
             )
-
-        normalized_id = IDParser.normalize_identifier(variant_id, entity_type, param_name)
 
         # Build query parameters
         params = {

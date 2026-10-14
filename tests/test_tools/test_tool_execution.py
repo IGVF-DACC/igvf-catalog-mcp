@@ -308,6 +308,43 @@ async def test_find_associations_unresolved_rsid_is_reported(fake_catalog):
     assert fake_catalog.params_for('/variants/coding-variants') == []
 
 
+async def test_find_associations_gene_symbol_shaped_like_uniprot_accession(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000169313', 'name': 'P2RY12'}])
+    fake_catalog.add('/genes/variants', [{'variant': 'variants/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'P2RY12', 'relationship': 'regulatory'})
+    )
+
+    assert data['entity_type'] == 'gene'
+    assert fake_catalog.params_for('/genes/variants') == [{'gene_name': 'P2RY12', 'page': '0', 'limit': '25'}]
+
+
+async def test_find_associations_hint_selects_protein(fake_catalog):
+    await call_tool(
+        'igvf_catalog_find_associations', {'entity_id': 'P2RY12', 'relationship': 'physical', 'hint': 'protein'}
+    )
+
+    assert fake_catalog.params_for('/genes') == []
+    assert fake_catalog.params_for('/proteins/proteins') == [{'dbxrefs': 'P2RY12', 'page': '0', 'limit': '25'}]
+
+
+async def test_find_associations_hint_disease_name(fake_catalog):
+    fake_catalog.add('/phenotypes/variants', [{'variant': 'variants/x'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'lupus', 'relationship': 'genetic', 'hint': 'disease'}
+        )
+    )
+
+    assert data['entity_type'] == 'ontology'
+    assert fake_catalog.params_for('/phenotypes/variants') == [
+        {'phenotype_name': 'lupus', 'page': '0', 'limit': '25'}
+    ]
+    assert fake_catalog.params_for('/diseases/genes') == [{'disease_name': 'lupus', 'page': '0', 'limit': '25'}]
+
+
 async def test_find_associations_ontology_term(fake_catalog):
     fake_catalog.add('/phenotypes/variants', [{'variant': 'variants/x'}])
 

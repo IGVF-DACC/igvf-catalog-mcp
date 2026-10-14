@@ -205,3 +205,22 @@ def test_get_client_method():
     assert IDParser.get_client_method('protein') == 'proteins'
     assert IDParser.get_client_method('ontology') == 'ontology_term'
     assert IDParser.get_client_method('pathway') == 'pathways'
+
+
+async def test_identify_gene_symbol_shaped_like_uniprot_accession(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000169313', 'name': 'P2RY12'}])
+
+    assert await IDParser.identify('p2ry12') == ('gene', 'name', 'P2RY12')
+    assert fake_catalog.params_for('/genes') == [{'name': 'P2RY12', 'page': '0'}]
+
+
+async def test_identify_uniprot_accession_without_matching_gene(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000000001', 'name': 'P4971'}])
+
+    assert await IDParser.identify('P49711') == ('protein', 'dbxrefs', 'P49711')
+
+
+async def test_identify_hint_skips_gene_check(fake_catalog):
+    assert await IDParser.identify('P2RY12', hint='protein') == ('protein', 'dbxrefs', 'P2RY12')
+    assert await IDParser.identify('rs1') == ('variant', 'rsid', 'rs1')
+    assert fake_catalog.requests == []
