@@ -67,6 +67,9 @@ GENE_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
 # Generic ontology term ID: a prefix of letters, _ or :, and a local ID containing a digit (e.g. NCIT_C27153)
 ONTOLOGY_TERM = r'^([A-Z]+)[_:]([A-Z0-9]*\d[A-Z0-9]*)$'
 
+# Change part of a genomic HGVS ID: a substitution, or a deletion, duplication, insertion or deletion-insertion
+GENOMIC_HGVS_CHANGE = r'(?:\d+[A-Z]>[A-Z]|\d+(?:_\d+)?(?:del|dup)|\d+_\d+ins[A-Z]+|\d+(?:_\d+)?delins[A-Z]+)'
+
 # UniProt accession format (https://www.uniprot.org/help/accession_numbers)
 UNIPROT_ACCESSION = r'(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})'
 
@@ -89,8 +92,8 @@ class IDParser:
         (rf'^{UNIPROT_ACCESSION}$', 'protein', 'dbxrefs'),
         # Variants
         (r'^rs\d+$', 'variant', 'rsid'),
-        (r'^NC_\d+\.\d+:\d+:[A-Z]+:[A-Z]+$', 'variant', 'spdi'),
-        (r'^NC_\d+\.\d+:g\.\d+[A-Z]>[A-Z]$', 'variant', 'hgvs'),
+        (r'^NC_\d+\.\d+:\d+:[A-Z]*:[A-Z]*$', 'variant', 'spdi'),
+        (rf'^NC_\d+\.\d+:g\.{GENOMIC_HGVS_CHANGE}$', 'variant', 'hgvs'),
         (r'^CA\d+$', 'variant', 'ca_id'),
         # Ontology terms
         (r'^Orphanet[_:]\d+$', 'ontology', 'term_id'),
@@ -252,7 +255,9 @@ class IDParser:
 
         identifier = identifier.upper()
         if param_name == 'hgvs':
-            identifier = identifier.replace(':G.', ':g.')
+            sequence, change = identifier.split(':G.', 1)
+            change = re.sub(r'DELINS|DEL|DUP|INS', lambda match: match.group().lower(), change)
+            identifier = f'{sequence}:g.{change}'
         if entity_type == 'ontology':
             return cls.normalize_term_id(original)
 

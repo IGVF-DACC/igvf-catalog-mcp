@@ -50,6 +50,31 @@ def test_detect_variant_hgvs():
     assert param_name == 'hgvs'
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'param_name', 'expected'),
+    [
+        ('NC_000016.10:19999964:A:', 'spdi', 'NC_000016.10:19999964:A:'),
+        ('nc_000001.11:1000099::t', 'spdi', 'NC_000001.11:1000099::T'),
+        ('NC_000019.10:g.19259535_19259538del', 'hgvs', 'NC_000019.10:g.19259535_19259538del'),
+        ('NC_000019.10:G.19259535_19259538DEL', 'hgvs', 'NC_000019.10:g.19259535_19259538del'),
+        ('NC_000016.10:g.19999965del', 'hgvs', 'NC_000016.10:g.19999965del'),
+        ('nc_000019.10:g.19259538_19259539insagac', 'hgvs', 'NC_000019.10:g.19259538_19259539insAGAC'),
+        ('NC_000001.11:g.1000_1001delinsTT', 'hgvs', 'NC_000001.11:g.1000_1001delinsTT'),
+        ('NC_000001.11:g.1000_1003DUP', 'hgvs', 'NC_000001.11:g.1000_1003dup'),
+        ('NC_000001.11:g.1000dup', 'hgvs', 'NC_000001.11:g.1000dup'),
+    ],
+)
+def test_detect_indel_variants(identifier, param_name, expected):
+    assert IDParser.detect_entity_type(identifier) == ('variant', param_name)
+    assert IDParser.normalize_identifier(identifier, 'variant', param_name) == expected
+
+
+@pytest.mark.parametrize('identifier', ['NC_000001.11:g.1000ins', 'NC_000001.11:g.1000insA', 'NC_000001.11:g.1000_del'])
+def test_reject_malformed_hgvs(identifier):
+    with pytest.raises(ValueError, match='Could not detect entity type'):
+        IDParser.detect_entity_type(identifier)
+
+
 def test_detect_variant_ca_id():
     """Test detection of ClinGen Allele IDs."""
     entity_type, param_name = IDParser.detect_entity_type('CA12345')
