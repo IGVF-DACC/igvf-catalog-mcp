@@ -7,7 +7,7 @@ from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client, method_params
 from ..services.formatter import ToolError, add_entity_type, build_pagination_metadata, format_error
-from ..services.id_parser import API_PAGE_SIZE, ENTITY_MAX_LIMITS, IDParser
+from ..services.id_parser import API_PAGE_SIZE, ENTITY_MAX_LIMITS, IDParser, name_not_found
 
 # Tool definition
 GET_ENTITY_TOOL = Tool(
@@ -19,8 +19,9 @@ GET_ENTITY_TOOL = Tool(
         'diseases (Orphanet_586, MONDO_0008199), drugs (PA448497), '
         'complexes (CPX-9), and more. '
         'Returns detailed information about the entity. '
-        'Name lookups (via hint) can match many entities: check _pagination.has_more in the response and use '
-        'the page parameter to retrieve additional results.'
+        'Gene symbols match exactly (case-insensitive); other names (via hint) are searched and can match many '
+        'entities: check _pagination.has_more in the response and use the page parameter to retrieve additional '
+        'results.'
     ),
     inputSchema={
         'type': 'object',
@@ -75,17 +76,27 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
         page = arguments.get('page', 0)
 
         # Detect entity type and normalize the identifier
-        entity_type, param_name, normalized_id = await IDParser.identify(entity_id, hint)
+        entity_type, param_name, normalized_id, matches, near_matches = await IDParser.identify(entity_id, hint)
 
-        # Query the API; methods without a limit parameter return pages of the API's default size
-        method_name = IDParser.get_client_method(entity_type)
-        query = {param_name: normalized_id, 'page': page}
-        if 'limit' in method_params(method_name):
+        if matches is not None:
+            # Gene symbols were looked up in full to keep only exact matches, so they are paged here
+            if not matches:
+                return [TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches))]
             effective_limit = min(limit, ENTITY_MAX_LIMITS[entity_type])
-            query['limit'] = effective_limit
+            start = page * effective_limit
+            entities = matches[start:start + effective_limit]
+            has_more = len(matches) > start + effective_limit
         else:
-            effective_limit = API_PAGE_SIZE
-        entities = await get_client().call(method_name, **query)
+            # Query the API; methods without a limit parameter return pages of the API's default size
+            method_name = IDParser.get_client_method(entity_type)
+            query = {param_name: normalized_id, 'page': page}
+            if 'limit' in method_params(method_name):
+                effective_limit = min(limit, ENTITY_MAX_LIMITS[entity_type])
+                query['limit'] = effective_limit
+            else:
+                effective_limit = API_PAGE_SIZE
+            entities = await get_client().call(method_name, **query)
+            has_more = None
 
         # Format response
         if not entities and page == 0:
@@ -96,7 +107,7 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
                 )
             ]
 
-        pagination = build_pagination_metadata(entities, page, effective_limit)
+        pagination = build_pagination_metadata(entities, page, effective_limit, has_more)
         if limit != effective_limit:
             pagination['limit_capped_to'] = effective_limit
 

@@ -8,6 +8,8 @@ from mcp import types
 from igvf_catalog_mcp.server import app, call_tool
 from igvf_catalog_mcp.services.formatter import ToolError
 
+BRCA1 = {'_id': 'ENSG00000012048', 'name': 'BRCA1'}
+
 
 def response_json(result):
     assert len(result) == 1
@@ -23,7 +25,64 @@ async def test_get_entity_gene_symbol(fake_catalog, sample_gene_data):
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'brca2'}))
 
     assert data['entities'] == [{'_type': 'gene', **sample_gene_data}]
-    assert fake_catalog.params_for('/genes') == [{'name': 'BRCA2', 'page': '0', 'limit': '25'}]
+    assert fake_catalog.params_for('/genes') == [{'name': 'BRCA2', 'limit': '500', 'page': '0'}]
+
+
+async def test_get_entity_gene_symbol_must_match_exactly(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000266304', 'name': 'LIVAR'}])
+
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'liver'})
+
+    assert result[0].text == "No gene found with symbol 'LIVER'. Did you mean: LIVAR?"
+
+
+async def test_get_entity_gene_hint_must_match_exactly(fake_catalog, sample_gene_data):
+    fake_catalog.add('/genes', [sample_gene_data, BRCA1])
+
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'BRCA', 'hint': 'gene'})
+
+    assert result[0].text == "No gene found with symbol 'BRCA'. Did you mean: BRCA2, BRCA1?"
+
+
+async def test_get_entity_gene_symbol_returns_only_exact_matches(fake_catalog, sample_gene_data):
+    fake_catalog.add('/genes', [sample_gene_data, BRCA1])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'brca1'}))
+
+    assert data['entities'] == [{'_type': 'gene', **BRCA1}]
+    assert data['_pagination']['has_more'] is False
+
+
+async def test_get_entity_pages_exact_gene_matches(fake_catalog):
+    genes = [{'_id': f'ENSG0000000000{i}', 'name': 'PAR1'} for i in range(3)]
+    fake_catalog.add('/genes', genes)
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'PAR1', 'limit': 2, 'page': 1}))
+
+    assert [entity['_id'] for entity in data['entities']] == ['ENSG00000000002']
+    assert data['_pagination']['has_more'] is False
+    assert fake_catalog.params_for('/genes') == [{'name': 'PAR1', 'limit': '500', 'page': '0'}]
+
+
+@pytest.mark.parametrize('symbol', ['RS1', 'CA1'])
+async def test_get_entity_gene_symbol_shaped_like_variant_id(fake_catalog, symbol):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000102104', 'name': symbol}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': symbol}))
+
+    assert data['entity_type'] == 'gene'
+    assert data['entities'][0]['name'] == symbol
+    assert fake_catalog.params_for('/variants') == []
+
+
+async def test_get_entity_variant_id_without_matching_gene(fake_catalog, sample_variant_data):
+    fake_catalog.add('/variants', [sample_variant_data])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CA6028682'}))
+
+    assert data['entity_type'] == 'variant'
+    assert fake_catalog.params_for('/genes') == [{'name': 'CA6028682', 'limit': '500', 'page': '0'}]
+    assert fake_catalog.params_for('/variants') == [{'ca_id': 'CA6028682', 'page': '0', 'limit': '25'}]
 
 
 async def test_get_entity_pathway_uses_id(fake_catalog):
@@ -69,13 +128,13 @@ async def test_get_entity_uniprot_isoform_uses_protein_id(fake_catalog):
     assert fake_catalog.params_for('/proteins') == [{'protein_id': 'P49711-1', 'page': '0', 'limit': '25'}]
 
 
-async def test_get_entity_gene_symbol_resembling_accession(fake_catalog, sample_gene_data):
-    fake_catalog.add('/genes', [sample_gene_data])
+async def test_get_entity_gene_symbol_resembling_accession(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000148737', 'name': 'TCF7L2'}])
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'TCF7L2'}))
 
     assert data['entities'][0]['_type'] == 'gene'
-    assert fake_catalog.params_for('/genes') == [{'name': 'TCF7L2', 'page': '0', 'limit': '25'}]
+    assert fake_catalog.params_for('/genes') == [{'name': 'TCF7L2', 'limit': '500', 'page': '0'}]
     assert fake_catalog.params_for('/proteins') == []
 
 
@@ -131,6 +190,8 @@ async def test_get_entity_capped_limit_in_pagination(fake_catalog):
 
 
 async def test_get_entity_empty_later_page(fake_catalog):
+    fake_catalog.add('/genes', [BRCA1])
+
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'BRCA1', 'page': 3}))
 
     assert data['entities'] == []
@@ -238,18 +299,115 @@ async def test_find_associations_variant_regulatory_filters(fake_catalog):
 
 
 async def test_find_associations_gene_symbol(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000163874', 'name': 'ZC3H12A'}, {'_id': 'ENSG1', 'name': 'ZC3H12AB'}])
     fake_catalog.add('/genes/variants', [{'variant': 'variants/x'}])
     fake_catalog.add('/genes/genomic-elements', [{'genomic_element': 'genomic_elements/x'}])
 
     data = response_json(
-        await call_tool('igvf_catalog_find_associations', {'entity_id': 'ZC3H12A', 'relationship': 'regulatory'})
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'zc3h12a', 'relationship': 'regulatory'})
     )
 
-    assert fake_catalog.params_for('/genes/variants') == [{'gene_name': 'ZC3H12A', 'page': '0', 'limit': '25'}]
+    assert data['resolved_entities'] == [{'id': 'ENSG00000163874', 'name': 'ZC3H12A'}]
+    assert fake_catalog.params_for('/genes') == [{'name': 'ZC3H12A', 'limit': '500', 'page': '0'}]
+    assert fake_catalog.params_for('/genes/variants') == [{'gene_id': 'ENSG00000163874', 'page': '0', 'limit': '25'}]
     metadata = {m['endpoint']: m for m in data['query_metadata']}
     assert metadata['genes_variants']['results_count'] == 1
+    assert metadata['genes_variants']['resolved_from'] == 'name'
+    assert metadata['genes_variants']['params_used']['gene_id'] == ['ENSG00000163874']
     assert metadata['genes_genomic_elements']['results_count'] == 1
-    assert fake_catalog.params_for('/genes/genomic-elements') == [{'gene_name': 'ZC3H12A', 'page': '0', 'limit': '25'}]
+    assert fake_catalog.params_for('/genes/genomic-elements') == [
+        {'gene_id': 'ENSG00000163874', 'page': '0', 'limit': '25'}
+    ]
+
+
+async def test_find_associations_gene_symbol_without_exact_match(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000266304', 'name': 'LIVAR'}])
+
+    result = await call_tool('igvf_catalog_find_associations', {'entity_id': 'liver', 'relationship': 'regulatory'})
+
+    assert result[0].text == "No gene found with symbol 'LIVER'. Did you mean: LIVAR?"
+    assert fake_catalog.params_for('/genes/variants') == []
+    assert fake_catalog.params_for('/genes/genomic-elements') == []
+
+
+async def test_find_associations_gene_symbol_shaped_like_ca_id(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000104267', 'name': 'CA2'}])
+    fake_catalog.add('/genes/diseases', [{'disease': 'ontology_terms/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'CA2', 'relationship': 'genetic'})
+    )
+
+    assert data['entity_type'] == 'gene'
+    assert data['num_associations'] == 1
+    assert fake_catalog.params_for('/genes') == [{'name': 'CA2', 'limit': '500', 'page': '0'}]
+    assert fake_catalog.params_for('/genes/diseases') == [{'gene_id': 'ENSG00000104267', 'page': '0', 'limit': '25'}]
+
+
+async def test_find_associations_drug_name_resolved_to_id(fake_catalog):
+    fake_catalog.add(
+        '/drugs', [{'_id': 'PA166131395', 'name': '10-hydroxy r-warfarin'}, {'_id': 'PA451906', 'name': 'warfarin'}]
+    )
+    fake_catalog.add('/drugs/variants', [{'variant': 'variants/x'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'Warfarin', 'hint': 'drug', 'relationship': 'pharmacological'},
+        )
+    )
+
+    assert data['resolved_entities'] == [{'id': 'PA451906', 'name': 'warfarin'}]
+    assert fake_catalog.params_for('/drugs') == [{'name': 'Warfarin', 'limit': '100', 'page': '0'}]
+    assert fake_catalog.params_for('/drugs/variants') == [{'drug_id': 'PA451906', 'page': '0', 'limit': '25'}]
+
+
+async def test_find_associations_protein_name_queries_each_protein(fake_catalog):
+    fake_catalog.add(
+        '/proteins',
+        [{'_id': 'ENSP00000264010', 'name': 'CTCF'}, {'_id': 'ENSP00000494538', 'name': 'CTCF'},
+         {'_id': 'ENSP00000391234', 'name': 'CTCFL'}],
+    )
+    fake_catalog.add('/proteins/transcripts', [{'transcript': 'transcripts/x'}])
+    fake_catalog.add('/gene-products/go-terms', [{'go_term_name': 'DNA binding'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'ctcf', 'hint': 'protein', 'relationship': 'all'}
+        )
+    )
+
+    assert [entity['id'] for entity in data['resolved_entities']] == ['ENSP00000264010', 'ENSP00000494538']
+    assert fake_catalog.params_for('/proteins') == [{'name': 'ctcf', 'limit': '50', 'page': '0'}]
+    assert fake_catalog.params_for('/proteins/transcripts') == [
+        {'protein_id': 'ENSP00000264010', 'page': '0', 'limit': '25'},
+        {'protein_id': 'ENSP00000494538', 'page': '0', 'limit': '25'},
+    ]
+    assert fake_catalog.params_for('/gene-products/go-terms') == [
+        {'query': 'ENSP00000264010', 'page': '0', 'limit': '25'},
+        {'query': 'ENSP00000494538', 'page': '0', 'limit': '25'},
+    ]
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert metadata['proteins_transcripts']['results_count'] == 2
+    assert metadata['go_terms_annotations']['params_used']['query'] == ['ENSP00000264010', 'ENSP00000494538']
+    for request_path, params in fake_catalog.requests:
+        if request_path != '/proteins':
+            assert not {'name', 'protein_name', 'gene_name'} & set(params)
+
+
+async def test_find_associations_complex_name_without_exact_match(fake_catalog):
+    fake_catalog.add('/complexes', [{'_id': 'CPX-5989', 'name': 'Nuclear mitotic cohesin complex, STAG1 variant'}])
+
+    result = await call_tool(
+        'igvf_catalog_find_associations', {'entity_id': 'cohesin', 'hint': 'complex', 'relationship': 'physical'}
+    )
+
+    assert result[0].text == (
+        "No complex found with name 'cohesin'. "
+        'Did you mean: Nuclear mitotic cohesin complex, STAG1 variant (CPX-5989)?'
+    )
+    assert fake_catalog.params_for('/complexes') == [{'name': 'cohesin', 'page': '0'}]
+    assert fake_catalog.params_for('/complexes/proteins') == []
 
 
 async def test_find_associations_protein_go_terms(fake_catalog):
@@ -318,6 +476,8 @@ async def test_find_associations_rsid_resolved_to_spdi_for_coding(fake_catalog):
 
 
 async def test_find_associations_reports_capped_limit(fake_catalog):
+    fake_catalog.add('/genes', [BRCA1])
+
     data = response_json(
         await call_tool(
             'igvf_catalog_find_associations',
@@ -329,7 +489,7 @@ async def test_find_associations_reports_capped_limit(fake_catalog):
     assert metadata['genes_genes']['limit_capped_to'] == 100
     assert metadata['genes_genes']['params_used']['limit'] == 100
     assert 'limit_capped_to' not in metadata['genes_variants']
-    assert fake_catalog.params_for('/genes/genes') == [{'gene_name': 'BRCA1', 'page': '0', 'limit': '100'}]
+    assert fake_catalog.params_for('/genes/genes') == [{'gene_id': 'ENSG00000012048', 'page': '0', 'limit': '100'}]
 
 
 async def test_find_associations_uppercase_rsid_is_normalized(fake_catalog):
@@ -365,7 +525,8 @@ async def test_find_associations_gene_symbol_shaped_like_uniprot_accession(fake_
     )
 
     assert data['entity_type'] == 'gene'
-    assert fake_catalog.params_for('/genes/variants') == [{'gene_name': 'P2RY12', 'page': '0', 'limit': '25'}]
+    assert fake_catalog.params_for('/genes') == [{'name': 'P2RY12', 'limit': '500', 'page': '0'}]
+    assert fake_catalog.params_for('/genes/variants') == [{'gene_id': 'ENSG00000169313', 'page': '0', 'limit': '25'}]
 
 
 async def test_find_associations_hint_selects_protein(fake_catalog):
@@ -378,6 +539,14 @@ async def test_find_associations_hint_selects_protein(fake_catalog):
 
 
 async def test_find_associations_hint_disease_name(fake_catalog):
+    fake_catalog.add(
+        '/ontology-terms',
+        [
+            {'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus', 'synonyms': ['lupus', 'lupus erythematosus']},
+            {'term_id': 'MONDO_0007915', 'name': 'systemic lupus erythematosus', 'synonyms': ['SLE']},
+            {'term_id': 'NCIT_C27153', 'name': 'lupus erythematosus', 'synonyms': ['Lupus']},
+        ],
+    )
     fake_catalog.add('/phenotypes/variants', [{'variant': 'variants/x'}])
 
     data = response_json(
@@ -387,10 +556,22 @@ async def test_find_associations_hint_disease_name(fake_catalog):
     )
 
     assert data['entity_type'] == 'ontology'
-    assert fake_catalog.params_for('/phenotypes/variants') == [
-        {'phenotype_name': 'lupus', 'page': '0', 'limit': '25'}
+    assert data['resolved_entities'] == [
+        {'id': 'MONDO_0004670', 'name': 'lupus erythematosus'},
+        {'id': 'NCIT_C27153', 'name': 'lupus erythematosus'},
     ]
-    assert fake_catalog.params_for('/diseases/genes') == [{'disease_name': 'lupus', 'page': '0', 'limit': '25'}]
+    assert fake_catalog.params_for('/ontology-terms') == [{'name': 'lupus', 'limit': '1000', 'page': '0'}]
+    assert fake_catalog.params_for('/phenotypes/variants') == [
+        {'phenotype_id': 'MONDO_0004670', 'page': '0', 'limit': '25'},
+        {'phenotype_id': 'NCIT_C27153', 'page': '0', 'limit': '25'},
+    ]
+    assert fake_catalog.params_for('/diseases/genes') == [
+        {'disease_id': 'MONDO_0004670', 'page': '0', 'limit': '25'},
+        {'disease_id': 'NCIT_C27153', 'page': '0', 'limit': '25'},
+    ]
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert metadata['phenotypes_variants']['resolved_from'] == 'name'
+    assert metadata['diseases_genes']['params_used']['disease_id'] == ['MONDO_0004670', 'NCIT_C27153']
 
 
 async def test_find_associations_ontology_term(fake_catalog):
@@ -424,6 +605,7 @@ async def test_find_associations_limit_is_per_endpoint_and_paginates(fake_catalo
 
 
 async def test_find_associations_returns_rows_from_every_endpoint(fake_catalog):
+    fake_catalog.add('/genes', [BRCA1])
     fake_catalog.add('/genes/variants', [{'variant': f'variants/{i}'} for i in range(2)])
     fake_catalog.add('/genes/genomic-elements', [{'genomic_element': f'genomic_elements/{i}'} for i in range(2)])
 
@@ -453,6 +635,7 @@ async def test_find_associations_endpoint_error_is_reported(fake_catalog):
 
 
 async def test_find_associations_partial_endpoint_error_is_reported(fake_catalog):
+    fake_catalog.add('/genes', [BRCA1])
     fake_catalog.add('/genes/variants', {'message': 'boom'}, status=500)
     fake_catalog.add('/genes/genomic-elements', [{'genomic_element': 'genomic_elements/x'}])
 

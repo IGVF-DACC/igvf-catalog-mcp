@@ -13,7 +13,8 @@ from ..services.edge_config import (
     get_endpoints_for_entity_and_relationship,
 )
 from ..services.formatter import ToolError, build_pagination_metadata, format_error
-from ..services.id_parser import IDParser
+from ..services.id_parser import IDParser, name_not_found
+from ..services.id_parser import entity_id as node_id
 
 # Tool definition
 FIND_ASSOCIATIONS_TOOL = Tool(
@@ -42,7 +43,9 @@ FIND_ASSOCIATIONS_TOOL = Tool(
                 'description': (
                     'Optional entity type of entity_id. With a gene, protein, disease, drug or complex hint, '
                     "an identifier that is not an ID of that type is used as a name (e.g. 'lupus' with hint "
-                    "'disease'). Also selects the type of IDs that fit several, e.g. 'P2RY12' with hint 'protein'."
+                    "'disease'). Names are resolved to the entities whose name (or synonym) matches exactly, listed "
+                    'in resolved_entities, and associations are queried by their IDs. '
+                    "Also selects the type of IDs that fit several, e.g. 'P2RY12' with hint 'protein'."
                 ),
                 'enum': ['gene', 'variant', 'protein', 'transcript', 'disease', 'drug', 'complex'],
             },
@@ -95,17 +98,23 @@ FIND_ASSOCIATIONS_TOOL = Tool(
 
 # Edge parameter names to try when an endpoint does not accept the node lookup parameter
 EDGE_PARAM_ALIASES: dict[str, list[str]] = {
-    'name': ['gene_name', 'protein_name', 'phenotype_name', 'disease_name', 'drug_name', 'complex_name'],
     'term_id': ['phenotype_id', 'disease_id'],
     'protein_id': ['query'],
     'dbxrefs': ['query'],
 }
 
-# Identifier types that some endpoints do not accept: (edge parameter, field of the looked-up node holding its value).
-# The identifier is looked up once, and such endpoints are queried once per value (e.g. per allele of an rsID).
-RESOLVED_EDGE_PARAMS: dict[str, tuple[str, str]] = {
-    'rsid': ('spdi', 'spdi'),
-    'dbxrefs': ('uniprot_name', 'uniprot_names'),
+# Identifiers resolved through a node lookup: (entity type, lookup parameter) -> (parameter of the resolved values,
+# field of the looked-up node holding them). Names are always resolved, to the exact matches' IDs, so edges are queried
+# by ID. Other identifiers are resolved only for endpoints that do not accept them (e.g. per allele of an rsID). The
+# resolved parameter is mapped to the endpoint's parameter like an identifier (see EDGE_PARAM_ALIASES).
+RESOLVED_EDGE_PARAMS: dict[tuple[str, str], tuple[str, str]] = {
+    ('variant', 'rsid'): ('spdi', 'spdi'),
+    ('protein', 'dbxrefs'): ('uniprot_name', 'uniprot_names'),
+    ('gene', 'name'): ('gene_id', '_id'),
+    ('protein', 'name'): ('protein_id', '_id'),
+    ('ontology', 'name'): ('term_id', 'term_id'),
+    ('drug', 'name'): ('drug_id', '_id'),
+    ('complex', 'name'): ('complex_id', '_id'),
 }
 
 
@@ -220,8 +229,14 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         page = arguments.get('page', 0)
         hint = arguments.get('hint')
 
+        if relationship not in RELATIONSHIP_TYPE_MAPPING and relationship != 'all':
+            raise ToolError(
+                f'Unknown relationship type: {relationship}. '
+                f"Valid types: {', '.join(RELATIONSHIP_TYPE_MAPPING.keys())}, all"
+            )
+
         # Detect entity type and normalize the identifier
-        entity_type, param_name, normalized_id = await IDParser.identify(entity_id, hint)
+        entity_type, param_name, normalized_id, nodes, near_matches = await IDParser.identify(entity_id, hint)
 
         # Determine which endpoints to query
         if relationship == 'all':
@@ -232,17 +247,20 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     endpoint_keys.extend(entity_map[entity_type])
         else:
             # Get endpoints for specific relationship type
-            if relationship not in RELATIONSHIP_TYPE_MAPPING:
-                raise ToolError(
-                    f'Unknown relationship type: {relationship}. '
-                    f"Valid types: {', '.join(RELATIONSHIP_TYPE_MAPPING.keys())}, all"
-                )
-
             endpoint_keys = get_endpoints_for_entity_and_relationship(
                 entity_type, relationship)
 
             if not endpoint_keys:
                 raise ToolError(f"Relationship type '{relationship}' not applicable to {entity_type} entities.")
+
+        # Names are resolved to the IDs of the entities that match them exactly
+        resolved_entities = None
+        if param_name == 'name':
+            if nodes is None:
+                nodes, near_matches = await IDParser.lookup_name(entity_type, normalized_id)
+            if not nodes:
+                return [TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches))]
+            resolved_entities = [{'id': node_id(node, entity_type), 'name': node.get('name')} for node in nodes]
 
         # Query all applicable endpoints
         all_associations = []
@@ -250,6 +268,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
         client = get_client()
         resolved_ids: list[str] | None = None
+        resolution = RESOLVED_EDGE_PARAMS.get((entity_type, param_name))
         for endpoint_key in endpoint_keys:
             edge_config = get_edge_config(endpoint_key)
             if not edge_config:
@@ -257,13 +276,11 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
             # The IDParser gives us the node lookup parameter, but each endpoint may expect a different name
             endpoint_param_name = resolve_edge_param(param_name, edge_config)
-            resolution = RESOLVED_EDGE_PARAMS.get(param_name)
-            resolve = (
-                endpoint_param_name is None
-                and resolution is not None
-                and resolution[0] in edge_config.get('from_params', [])
-            )
-            if endpoint_param_name is None and not resolve:
+            resolve = False
+            if endpoint_param_name is None and resolution is not None:
+                endpoint_param_name = resolve_edge_param(resolution[0], edge_config)
+                resolve = endpoint_param_name is not None
+            if endpoint_param_name is None:
                 query_metadata.append(
                     {
                         'endpoint': endpoint_key,
@@ -277,9 +294,10 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             # Build query parameters
             try:
                 if resolve:
-                    endpoint_param_name, field = resolution
+                    field = resolution[1]
                     if resolved_ids is None:
-                        nodes = await IDParser.lookup_all(entity_type, param_name, normalized_id)
+                        if nodes is None:
+                            nodes = await IDParser.lookup_all(entity_type, param_name, normalized_id)
                         resolved_ids = []
                         for node in nodes:
                             value = node.get(field) or []
@@ -362,6 +380,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             '_pagination': top_pagination,
             'entity_id': normalized_id,
             'entity_type': entity_type,
+            **({'resolved_entities': resolved_entities} if resolved_entities is not None else {}),
             'relationship_type': relationship,
             'num_associations': len(all_associations),
             'query_metadata': query_metadata,

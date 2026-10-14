@@ -13,9 +13,14 @@ import pytest
 from igvf_catalog_async_client import AsyncIgvfCatalogApi
 
 from igvf_catalog_mcp.services.api_client import method_params
-from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS
+from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS, RELATIONSHIP_TYPE_MAPPING
 from igvf_catalog_mcp.services.id_parser import ENTITY_MAX_LIMITS, ENTITY_METHODS, NAME_PARAMS, IDParser
-from igvf_catalog_mcp.tools.find_associations import EDGE_PARAM_ALIASES, RESOLVED_EDGE_PARAMS, build_query_params
+from igvf_catalog_mcp.tools.find_associations import (
+    EDGE_PARAM_ALIASES,
+    RESOLVED_EDGE_PARAMS,
+    build_query_params,
+    resolve_edge_param,
+)
 from igvf_catalog_mcp.tools.search_region import REGION_QUERY_METHODS
 
 PAGING_PARAMS = {'page', 'limit'}
@@ -94,10 +99,20 @@ def test_entity_max_limits_match_client():
 
 
 def test_resolved_edge_params_match_client():
-    for param_name, (edge_param, _) in RESOLVED_EDGE_PARAMS.items():
-        entity_type = next(entity_type for _, entity_type, name in IDParser.PATTERNS if name == param_name)
-        assert {param_name, 'limit', 'page'} <= method_params(IDParser.get_client_method(entity_type))
-        assert any(edge_param in config.get('from_params', []) for config in EDGE_ENDPOINTS.values())
+    for (entity_type, param_name), (resolved_param, _) in RESOLVED_EDGE_PARAMS.items():
+        assert {param_name, 'page'} <= method_params(IDParser.get_client_method(entity_type))
+        assert any(resolve_edge_param(resolved_param, config) for config in EDGE_ENDPOINTS.values())
+
+
+@pytest.mark.parametrize(
+    'entity_type', sorted({t for mapping in RELATIONSHIP_TYPE_MAPPING.values() for t in mapping} & set(NAME_PARAMS))
+)
+def test_names_resolve_to_a_parameter_of_every_endpoint(entity_type):
+    resolved_param, _ = RESOLVED_EDGE_PARAMS[(entity_type, 'name')]
+    for mapping in RELATIONSHIP_TYPE_MAPPING.values():
+        for endpoint_key in mapping.get(entity_type, []):
+            assert resolve_edge_param(resolved_param, EDGE_ENDPOINTS[endpoint_key]), endpoint_key
+            assert resolve_edge_param('name', EDGE_ENDPOINTS[endpoint_key]) is None, endpoint_key
 
 
 @pytest.mark.parametrize('method_name', sorted(set(REGION_QUERY_METHODS.values())))

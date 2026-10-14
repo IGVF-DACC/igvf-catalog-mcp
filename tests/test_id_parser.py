@@ -2,7 +2,7 @@
 
 import pytest
 
-from igvf_catalog_mcp.services.id_parser import IDParser
+from igvf_catalog_mcp.services.id_parser import IDParser, name_matches, name_not_found
 
 
 def test_detect_gene_ensembl():
@@ -301,19 +301,108 @@ def test_get_client_method():
 
 
 async def test_identify_gene_symbol_shaped_like_uniprot_accession(fake_catalog):
-    fake_catalog.add('/genes', [{'_id': 'ENSG00000169313', 'name': 'P2RY12'}])
+    gene = {'_id': 'ENSG00000169313', 'name': 'P2RY12'}
+    fake_catalog.add('/genes', [gene])
 
-    assert await IDParser.identify('p2ry12') == ('gene', 'name', 'P2RY12')
-    assert fake_catalog.params_for('/genes') == [{'name': 'P2RY12', 'page': '0'}]
+    identification = await IDParser.identify('p2ry12')
+
+    assert identification[:3] == ('gene', 'name', 'P2RY12')
+    assert identification.matches == [gene]
+    assert fake_catalog.params_for('/genes') == [{'name': 'P2RY12', 'limit': '500', 'page': '0'}]
 
 
 async def test_identify_uniprot_accession_without_matching_gene(fake_catalog):
     fake_catalog.add('/genes', [{'_id': 'ENSG00000000001', 'name': 'P4971'}])
 
-    assert await IDParser.identify('P49711') == ('protein', 'dbxrefs', 'P49711')
+    identification = await IDParser.identify('P49711')
+
+    assert identification == ('protein', 'dbxrefs', 'P49711', None, None)
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'symbol'),
+    [('RS1', 'RS1'), ('rs1', 'RS1'), ('CA1', 'CA1'), ('ca2', 'CA2'), ('PA2', 'PA2'), ('GCST1', 'GCST1')],
+)
+async def test_identify_gene_symbol_shaped_like_other_ids(fake_catalog, identifier, symbol):
+    gene = {'_id': 'ENSG00000102104', 'name': symbol}
+    fake_catalog.add('/genes', [gene])
+
+    identification = await IDParser.identify(identifier)
+
+    assert identification == ('gene', 'name', symbol, [gene], [])
+    assert fake_catalog.params_for('/genes') == [{'name': symbol, 'limit': '500', 'page': '0'}]
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('rs7903146', ('variant', 'rsid', 'rs7903146')),
+        ('CA9324761', ('variant', 'ca_id', 'CA9324761')),
+        ('RS1', ('variant', 'rsid', 'rs1')),
+    ],
+)
+async def test_identify_symbol_shaped_ids_without_exact_gene(fake_catalog, identifier, expected):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000102104', 'name': 'RS1L'}])
+
+    assert await IDParser.identify(identifier) == (*expected, None, None)
+    assert len(fake_catalog.params_for('/genes')) == 1
+
+
+async def test_identify_gene_symbol_keeps_only_exact_matches(fake_catalog):
+    brca1 = {'_id': 'ENSG00000012048', 'name': 'BRCA1'}
+    brca2 = {'_id': 'ENSG00000139618', 'name': 'BRCA2'}
+    fake_catalog.add('/genes', [brca2, brca1])
+
+    assert await IDParser.identify('brca1') == ('gene', 'name', 'BRCA1', [brca1], [brca2])
+    assert await IDParser.identify('BRCA', hint='gene') == ('gene', 'name', 'BRCA', [], [brca2, brca1])
+
+
+async def test_identify_long_ids_skip_gene_check(fake_catalog):
+    assert await IDParser.identify('ENSG00000139618') == ('gene', 'gene_id', 'ENSG00000139618', None, None)
+    assert await IDParser.identify('rs123456789') == ('variant', 'rsid', 'rs123456789', None, None)
+    assert fake_catalog.requests == []
 
 
 async def test_identify_hint_skips_gene_check(fake_catalog):
-    assert await IDParser.identify('P2RY12', hint='protein') == ('protein', 'dbxrefs', 'P2RY12')
-    assert await IDParser.identify('rs1') == ('variant', 'rsid', 'rs1')
+    assert await IDParser.identify('P2RY12', hint='protein') == ('protein', 'dbxrefs', 'P2RY12', None, None)
+    assert await IDParser.identify('rs1', hint='variant') == ('variant', 'rsid', 'rs1', None, None)
+    assert await IDParser.identify('CA1', hint='variant') == ('variant', 'ca_id', 'CA1', None, None)
     assert fake_catalog.requests == []
+
+
+async def test_lookup_name_matches_other_names_case_insensitively(fake_catalog):
+    lupus = {'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus', 'synonyms': ['lupus']}
+    sle = {'term_id': 'MONDO_0007915', 'name': 'systemic lupus erythematosus', 'synonyms': ['SLE']}
+    fake_catalog.add('/ontology-terms', [lupus, sle])
+
+    assert await IDParser.lookup_name('ontology', 'Lupus') == ([lupus], [sle])
+
+
+@pytest.mark.parametrize(
+    ('entity', 'name'),
+    [
+        ({'name': 'CTCF', 'uniprot_names': ['CTCF_HUMAN']}, 'ctcf'),
+        ({'name': 'CTCF', 'uniprot_names': ['CTCF_HUMAN']}, 'ctcf_human'),
+        ({'name': 'CTCF', 'uniprot_full_names': ['Transcriptional repressor CTCF']}, 'transcriptional repressor ctcf'),
+    ],
+)
+def test_name_matches_protein_fields(entity, name):
+    assert name_matches(entity, 'protein', name)
+
+
+def test_name_matches_is_exact():
+    assert not name_matches({'name': 'LIVAR'}, 'gene', 'LIVER')
+    assert not name_matches({'name': 'warfarin'}, 'drug', 'warfarin sodium')
+    assert name_matches({'name': 'warfarin'}, 'drug', 'Warfarin')
+
+
+def test_name_not_found_suggests_near_matches():
+    assert name_not_found('gene', 'LIVER', [{'_id': 'ENSG00000266304', 'name': 'LIVAR'}]) == (
+        "No gene found with symbol 'LIVER'. Did you mean: LIVAR?"
+    )
+    assert name_not_found('drug', 'warfarine', []) == "No drug found with name 'warfarine'"
+    assert name_not_found('ontology', 'lupu', [{'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus'}]) == (
+        "No ontology term found with name 'lupu'. Did you mean: lupus erythematosus (MONDO_0004670)?"
+    )
+    many = [{'name': f'GENE{i}'} for i in range(12)]
+    assert name_not_found('gene', 'GENE', many).endswith('GENE9, …?')

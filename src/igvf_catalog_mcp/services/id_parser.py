@@ -1,7 +1,7 @@
 """Entity ID parser with auto-detection of entity types."""
 
 import re
-from typing import Literal
+from typing import Any, Literal, NamedTuple
 
 from .api_client import get_client
 
@@ -49,6 +49,22 @@ NAME_PARAMS: dict[str, str] = {
     'pathway': 'name',
 }
 
+# Record fields that a name must equal (case-insensitively) for an entity to match it exactly
+NAME_FIELDS: dict[str, list[str]] = {
+    'gene': ['name'],
+    'protein': ['name', 'uniprot_names', 'uniprot_full_names'],
+    'ontology': ['name', 'synonyms'],
+    'drug': ['name'],
+    'complex': ['name'],
+    'pathway': ['name'],
+}
+
+# Record field holding each entity type's ID
+ID_FIELDS: dict[str, str] = {'ontology': 'term_id'}
+
+# Maximum number of near matches suggested when a name has no exact match
+MAX_SUGGESTIONS = 10
+
 # Maximum page size of each lookup method. The complexes and studies methods take no limit and return
 # API_PAGE_SIZE results per page.
 ENTITY_MAX_LIMITS: dict[str, int] = {
@@ -75,6 +91,80 @@ GENOMIC_HGVS_CHANGE = r'(?:\d+[A-Z]>[A-Z]|\d+(?:_\d+)?(?:del|dup)|\d+_\d+ins[A-Z
 
 # UniProt accession format (https://www.uniprot.org/help/accession_numbers)
 UNIPROT_ACCESSION = r'(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})'
+
+
+class Identification(NamedTuple):
+    """An identifier's entity type, lookup parameter and normalized value."""
+
+    entity_type: EntityType
+    param_name: str
+    identifier: str
+    # Entities whose name equals the identifier, when it was looked up by name (gene symbols); otherwise None
+    matches: list[dict[str, Any]] | None = None
+    # Other entities the name lookup returned
+    near_matches: list[dict[str, Any]] | None = None
+
+
+def entity_id(entity: dict[str, Any], entity_type: str) -> Any:
+    """
+    Get the ID of an entity record.
+
+    Args:
+        entity: The entity record
+        entity_type: The type of entity
+
+    Returns:
+        The record's ID field (term_id for ontology terms, otherwise _id)
+    """
+    return entity.get(ID_FIELDS.get(entity_type, '_id'))
+
+
+def name_matches(entity: dict[str, Any], entity_type: str, name: str) -> bool:
+    """
+    Check whether an entity's name, or one of its other names, equals a name case-insensitively.
+
+    Args:
+        entity: The entity record
+        entity_type: The type of entity, which selects the fields compared (see NAME_FIELDS)
+        name: The name to compare
+
+    Returns:
+        Whether the entity matches the name exactly
+    """
+    target = name.strip().casefold()
+    for field in NAME_FIELDS.get(entity_type, ['name']):
+        value = entity.get(field)
+        for candidate in value if isinstance(value, list) else [value]:
+            if isinstance(candidate, str) and candidate.casefold() == target:
+                return True
+    return False
+
+
+def name_not_found(entity_type: str, name: str, near_matches: list[dict[str, Any]] | None = None) -> str:
+    """
+    Describe a name without exact matches, suggesting the entities the name search returned instead.
+
+    Args:
+        entity_type: The type of entity
+        name: The name looked up
+        near_matches: Entities the name search returned that do not match exactly
+
+    Returns:
+        Message such as "No gene found with symbol 'LIVER'. Did you mean: LIVAR?"
+    """
+    label = TYPE_LABELS.get(entity_type, entity_type)
+    message = f"No {label} found with {'symbol' if entity_type == 'gene' else 'name'} '{name}'"
+    suggestions: list[str] = []
+    for entity in near_matches or []:
+        suggestion = entity.get('name')
+        if entity_type != 'gene' and entity_id(entity, entity_type):
+            suggestion = f'{suggestion} ({entity_id(entity, entity_type)})'
+        if suggestion and suggestion not in suggestions:
+            suggestions.append(suggestion)
+    if suggestions:
+        more = ', …' if len(suggestions) > MAX_SUGGESTIONS else ''
+        message += f". Did you mean: {', '.join(suggestions[:MAX_SUGGESTIONS])}{more}?"
+    return message
 
 
 def with_article(noun: str) -> str:
@@ -191,19 +281,21 @@ class IDParser:
         )
 
     @classmethod
-    async def identify(cls, identifier: str, hint: str | None = None) -> tuple[EntityType, str, str]:
+    async def identify(cls, identifier: str, hint: str | None = None) -> Identification:
         """
         Detect the entity type of an identifier and normalize it for API queries.
 
-        Without a hint, an identifier that is both a UniProt accession and a gene symbol is a gene
-        if a gene with exactly that symbol exists, and a protein otherwise.
+        Gene symbols only match genes whose symbol equals them case-insensitively, so they are looked up
+        across all pages and the exact matches are returned. Without a hint, an identifier that fits both
+        another ID pattern and the gene symbol pattern (e.g. RS1, CA1 or P2RY12) is a gene if a gene with
+        exactly that symbol exists. Either check costs one gene name lookup.
 
         Args:
             identifier: The ID string to parse
             hint: Optional hint about the entity type
 
         Returns:
-            Tuple of (entity_type, parameter_name, normalized_identifier)
+            The Identification, with the exact and near matches of a gene symbol
 
         Raises:
             ValueError: As detect_entity_type
@@ -211,12 +303,35 @@ class IDParser:
         entity_type, param_name = cls.detect_entity_type(identifier, hint)
         normalized_id = cls.normalize_identifier(identifier, entity_type, param_name)
 
-        if hint is None and param_name == 'dbxrefs' and re.match(GENE_SYMBOL, normalized_id):
-            genes = await get_client().call(ENTITY_METHODS['gene'], name=normalized_id, page=0)
-            if any(gene.get('name') == normalized_id for gene in genes):
-                return 'gene', 'name', normalized_id
+        is_symbol = (entity_type, param_name) == ('gene', 'name')
+        ambiguous = hint is None and not is_symbol and re.match(GENE_SYMBOL, identifier.strip(), re.IGNORECASE)
+        if is_symbol or ambiguous:
+            symbol = identifier.strip().upper()
+            matches, near_matches = await cls.lookup_name('gene', symbol)
+            if is_symbol or matches:
+                return Identification('gene', 'name', symbol, matches, near_matches)
 
-        return entity_type, param_name, normalized_id
+        return Identification(entity_type, param_name, normalized_id)  # type: ignore
+
+    @classmethod
+    async def lookup_name(cls, entity_type: EntityType, name: str) -> tuple[list[dict], list[dict]]:
+        """
+        Look up entities by name across all pages, and split them into exact and near matches.
+
+        The catalog's name search is fuzzy (e.g. LIVER finds LIVAR); only entities whose name, or another
+        name field (see NAME_FIELDS), equals the name case-insensitively match exactly.
+
+        Args:
+            entity_type: The type of entity, which must have a name lookup (see NAME_PARAMS)
+            name: The normalized name
+
+        Returns:
+            Tuple of (exact matches, other entities the search returned)
+        """
+        entities = await cls.lookup_all(entity_type, NAME_PARAMS[entity_type], name)
+        exact = [entity for entity in entities if name_matches(entity, entity_type, name)]
+        near = [entity for entity in entities if not name_matches(entity, entity_type, name)]
+        return exact, near
 
     @classmethod
     async def lookup_all(cls, entity_type: EntityType, param_name: str, identifier: str) -> list[dict]:
