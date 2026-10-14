@@ -749,6 +749,20 @@ async def test_resolve_id_gene(fake_catalog, sample_gene_data):
     assert fake_catalog.params_for('/genes') == [{'hgnc_id': 'HGNC:1101', 'page': '0'}]
 
 
+async def test_resolve_id_ontology_term(fake_catalog):
+    fake_catalog.add(
+        '/ontology-terms',
+        [{'term_id': 'MONDO_0009861', 'name': 'phenylketonuria', 'synonyms': ['PKU'], 'source': 'MONDO'}],
+    )
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'mondo_0009861'}))
+
+    assert data['identifiers'] == {
+        'term_id': 'MONDO_0009861', 'name': 'phenylketonuria', 'synonyms': ['PKU'], 'source': 'MONDO'
+    }
+    assert fake_catalog.params_for('/ontology-terms') == [{'term_id': 'MONDO_0009861', 'page': '0'}]
+
+
 async def test_resolve_id_uniprot_accession(fake_catalog):
     fake_catalog.add('/proteins', [{'_id': 'ENSP00000494538', 'dbxrefs': [{'name': 'UniProtKB', 'id': 'P49711'}]}])
 

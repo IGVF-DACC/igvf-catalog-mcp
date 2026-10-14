@@ -129,7 +129,7 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
         elif entity_type == 'ontology':
             # Ontology term identifiers
             identifiers['identifiers'] = {
-                'term_id': entity.get('_id'),
+                'term_id': entity.get('term_id', entity.get('_id')),
                 'name': entity.get('name'),
                 'synonyms': entity.get('synonyms', []),
                 'source': entity.get('source'),
