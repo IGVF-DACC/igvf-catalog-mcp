@@ -23,6 +23,7 @@
 - **`find_associations` returned only the first endpoint's rows**: every endpoint was queried with `limit`, but the combined list was then cut to `limit`, so later endpoints (e.g. `genes_genomic_elements` for a gene's `regulatory` relationship) were never visible on any page. `limit` now applies per endpoint and every fetched row is returned.
 - **Gene symbols detected as UniProt accessions**: any six-character alphanumeric ID (TCF7L2, PNPLA3, VKORC1, CYP2C9, …) was treated as a protein. Proteins are now detected with the official UniProt accession pattern.
 - **Bare UniProt accessions did not resolve**: the API stores isoform IDs (`P49711-1`) as `protein_id`, so `P49711` found nothing. Accessions without an isoform suffix are now looked up through `dbxrefs` in `get_entity`, `resolve_id` and `find_associations`.
+- **`resolve_id` showed one allele of a multi-allelic rsID**: only the first returned variant was used, so e.g. the common C:T allele of rs58542926 was missing. Variant results now include an `alleles` list (SPDI, HGVS, CA ID, ref, alt) with every matching variant, plus a `note` when there is more than one.
 
 ### Added
 - **Contract tests** (`tests/test_contract.py`) checking every method and parameter used by the server against the generated client, and offline tests running all six tools through `call_tool`.

@@ -332,7 +332,29 @@ async def test_resolve_id_variant(fake_catalog, sample_variant_data):
     assert data['identifiers']['rsid'] == ['rs80357906']
     assert data['identifiers']['spdi'] == 'NC_000017.11:43044295:G:A'
     assert data['identifiers']['position'] == 43044295
-    assert fake_catalog.params_for('/variants') == [{'ca_id': 'CA6028682', 'page': '0'}]
+    assert data['alleles'] == [
+        {'spdi': 'NC_000017.11:43044295:G:A', 'hgvs': 'NC_000017.11:g.43044296G>A', 'ca_id': 'CA6028682',
+         'ref': 'G', 'alt': 'A'}
+    ]
+    assert 'note' not in data
+    assert fake_catalog.params_for('/variants') == [{'ca_id': 'CA6028682', 'page': '0', 'limit': '100'}]
+
+
+async def test_resolve_id_multi_allelic_rsid(fake_catalog):
+    alleles = [
+        {'_id': f'NC_000019.10:19268739:C:{alt}', 'rsid': ['rs58542926'], 'spdi': f'NC_000019.10:19268739:C:{alt}',
+         'hgvs': f'NC_000019.10:g.19268740C>{alt}', 'ca_id': ca_id, 'ref': 'C', 'alt': alt}
+        for alt, ca_id in [('A', 'CA404925740'), ('T', 'CA020130')]
+    ]
+    fake_catalog.add('/variants', alleles)
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'rs58542926'}))
+
+    assert data['identifiers']['spdi'] == 'NC_000019.10:19268739:C:A'
+    assert [a['spdi'] for a in data['alleles']] == ['NC_000019.10:19268739:C:A', 'NC_000019.10:19268739:C:T']
+    assert [a['ca_id'] for a in data['alleles']] == ['CA404925740', 'CA020130']
+    assert 'multi-allelic' in data['note']
+    assert fake_catalog.params_for('/variants') == [{'rsid': 'rs58542926', 'page': '0', 'limit': '100'}]
 
 
 async def test_resolve_id_gene(fake_catalog, sample_gene_data):

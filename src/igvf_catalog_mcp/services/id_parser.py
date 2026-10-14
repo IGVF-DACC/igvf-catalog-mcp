@@ -28,6 +28,9 @@ ENTITY_METHODS: dict[str, str] = {
     'pathway': 'pathways',
 }
 
+# Page size for variant lookups, so that every allele of a multi-allelic rsID is returned
+VARIANT_LOOKUP_LIMIT = 100
+
 # UniProt accession format (https://www.uniprot.org/help/accession_numbers)
 UNIPROT_ACCESSION = r'(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})'
 
