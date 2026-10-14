@@ -69,9 +69,10 @@ def test_build_query_params_emits_accepted_kwargs(endpoint_key):
         if config.get(allowed_key):
             filters[filter_name] = config[allowed_key][0]
 
-    params = build_query_params('x', config['from_params'][0], config, filters, 25, True, 0)
+    params, not_applied = build_query_params('x', config['from_params'][0], config, filters, 25, True, 0)
 
     assert set(params) <= accepted
+    assert not set(config.get('filters', {})) & set(not_applied)
 
 
 def test_edge_param_aliases_are_used():

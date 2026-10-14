@@ -298,6 +298,74 @@ async def test_find_associations_variant_regulatory_filters(fake_catalog):
     ]
 
 
+async def test_find_associations_reports_filters_not_applied(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {
+                'entity_id': 'ENSG00000163874',
+                'relationship': 'regulatory',
+                'filters': {'method': 'eQTL', 'source': 'EBI eQTL Catalogue', 'biological_context': 'liver'},
+            },
+        )
+    )
+
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert metadata['genes_variants']['filters_not_applied'] == {'source': 'invalid value; valid: AFGR, EBI, IGVF'}
+    assert metadata['genes_genomic_elements']['filters_not_applied'] == {
+        'method': 'invalid value; valid: CRISPR screen, ENCODE-rE2G, Perturb-seq, scE2G',
+        'source': 'invalid value; valid: ENCODE, IGVF',
+    }
+    assert data['note'].startswith('Filters not applied to any endpoint: source.')
+    assert fake_catalog.params_for('/genes/variants') == [
+        {'gene_id': 'ENSG00000163874', 'biological_context': 'liver', 'method': 'eQTL', 'page': '0', 'limit': '25'}
+    ]
+    assert fake_catalog.params_for('/genes/genomic-elements') == [
+        {'gene_id': 'ENSG00000163874', 'biological_context': 'liver', 'page': '0', 'limit': '25'}
+    ]
+
+
+async def test_find_associations_unsupported_filter(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'ENSG00000163874', 'relationship': 'functional', 'filters': {'p_value': 0.01, 'r2': 0.8}},
+        )
+    )
+
+    assert data['query_metadata'][0]['filters_not_applied'] == {
+        'p_value': 'not supported by this endpoint',
+        'r2': 'not supported by this endpoint',
+    }
+    assert data['note'].startswith('Filters not applied to any endpoint: p_value, r2.')
+
+
+async def test_find_associations_score_filter(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'ENSG00000012048', 'relationship': 'regulatory', 'filters': {'score': 0.7}},
+        )
+    )
+
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert metadata['genes_genomic_elements']['params_used']['score'] == 'gte:0.7'
+    assert 'filters_not_applied' not in metadata['genes_genomic_elements']
+    assert metadata['genes_variants']['filters_not_applied'] == {'score': 'not supported by this endpoint'}
+    assert 'note' not in data
+    assert fake_catalog.params_for('/genes/genomic-elements')[0]['score'] == 'gte:0.7'
+    assert 'score' not in fake_catalog.params_for('/genes/variants')[0]
+
+
+async def test_find_associations_score_filter_with_operator(fake_catalog):
+    await call_tool(
+        'igvf_catalog_find_associations',
+        {'entity_id': 'ENSG00000012048', 'relationship': 'regulatory', 'filters': {'score': 'gt:0.7'}},
+    )
+
+    assert fake_catalog.params_for('/genes/genomic-elements')[0]['score'] == 'gt:0.7'
+
+
 async def test_find_associations_gene_symbol(fake_catalog):
     fake_catalog.add('/genes', [{'_id': 'ENSG00000163874', 'name': 'ZC3H12A'}, {'_id': 'ENSG1', 'name': 'ZC3H12AB'}])
     fake_catalog.add('/genes/variants', [{'variant': 'variants/x'}])

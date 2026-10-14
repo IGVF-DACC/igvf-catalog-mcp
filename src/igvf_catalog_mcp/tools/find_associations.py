@@ -56,13 +56,26 @@ FIND_ASSOCIATIONS_TOOL = Tool(
             },
             'filters': {
                 'type': 'object',
-                'description': 'Optional filters',
+                'description': (
+                    'Optional filters. Each endpoint supports a different set of filters and values (see '
+                    'list_sources); query_metadata lists the filters_not_applied to each endpoint, with the reason.'
+                ),
                 'properties': {
                     'p_value': {'type': 'number', 'description': 'Maximum p-value threshold'},
-                    'source': {'type': 'string', 'description': "Data source (e.g., 'AFGR', 'EBI eQTL Catalogue')"},
+                    'source': {
+                        'type': 'string',
+                        'description': "Data source (e.g., 'AFGR', 'EBI', 'IGVF'); list_sources lists the valid values",
+                    },
                     'biological_context': {'type': 'string', 'description': 'Tissue or cell type'},
-                    'method': {'type': 'string', 'description': 'Experimental method'},
-                    'label': {'type': 'string', 'description': 'Edge label/type'},
+                    'method': {
+                        'type': 'string',
+                        'description': "Experimental method (e.g., 'eQTL', 'CRISPR screen', 'ENCODE-rE2G', 'GWAS')",
+                    },
+                    'label': {'type': 'string', 'description': "Edge label/type (e.g., 'eQTL', 'GWAS')"},
+                    'score': {
+                        'type': 'number',
+                        'description': 'Minimum score (e.g. E2G prediction score, for gene-genomic element queries)',
+                    },
                     'r2': {'type': 'number', 'description': 'LD r2 threshold (for LD queries)'},
                     'd_prime': {'type': 'number', 'description': 'LD D\' threshold (for LD queries)'},
                     'ancestry': {'type': 'string', 'description': 'Population ancestry (for LD queries)'},
@@ -118,6 +131,15 @@ RESOLVED_EDGE_PARAMS: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
+# Filters whose value must be in a list of the endpoint configuration: filter name -> configuration key
+VALUE_LIST_FILTERS: dict[str, str] = {'source': 'sources', 'method': 'methods', 'label': 'labels'}
+
+# Range filters for which a plain number is a minimum
+MIN_THRESHOLD_FILTERS = ['r2', 'd_prime', 'z_score', 'score']
+
+NOT_SUPPORTED = 'not supported by this endpoint'
+
+
 def resolve_edge_param(param_name: str, edge_config: dict[str, Any]) -> str | None:
     """
     Map an IDParser parameter name to the parameter an edge endpoint accepts.
@@ -144,7 +166,7 @@ def build_query_params(
     limit: int,
     verbose: bool,
     page: int = 0,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, str]]:
     """
     Build query parameters for an edge endpoint based on its configuration.
 
@@ -161,7 +183,7 @@ def build_query_params(
         page: Page number (0-indexed)
 
     Returns:
-        Dictionary of query parameters
+        Tuple of (query parameters, user filters not applied to this endpoint mapped to the reason)
     """
     accepted_params = method_params(edge_config['client_method'])
     params = {
@@ -169,6 +191,7 @@ def build_query_params(
         'limit': min(limit, edge_config.get('max_limit', 500)),
         'page': page,
     }
+    not_applied: dict[str, str] = {}
 
     # Add verbose mode if supported
     if verbose and 'verbose' in accepted_params:
@@ -180,18 +203,34 @@ def build_query_params(
     for filter_name, filter_value in user_filters.items():
         if filter_name == 'p_value':
             # User provides max p-value, API expects min -log10(p-value)
-            if 'neg_log10_pvalue' in supported_filters and filter_value > 0:
+            if 'neg_log10_pvalue' not in supported_filters:
+                not_applied[filter_name] = NOT_SUPPORTED
+            elif not isinstance(filter_value, (int, float)) or filter_value <= 0:
+                not_applied[filter_name] = 'invalid value; must be a number greater than 0'
+            else:
                 params['neg_log10_pvalue'] = f'gte:{-math.log10(filter_value):.2f}'
             continue
 
+        if filter_name in VALUE_LIST_FILTERS:
+            # Source, method and label values must be one of the endpoint's values
+            allowed = edge_config.get(VALUE_LIST_FILTERS[filter_name], [])
+            if filter_name not in accepted_params or not allowed:
+                not_applied[filter_name] = NOT_SUPPORTED
+            elif filter_value not in allowed:
+                not_applied[filter_name] = f"invalid value; valid: {', '.join(allowed)}"
+            else:
+                params[filter_name] = filter_value
+            continue
+
         if filter_name not in supported_filters:
+            not_applied[filter_name] = NOT_SUPPORTED
             continue
 
         filter_type = supported_filters[filter_name]
 
         if filter_type == 'range':
-            if filter_name in ['r2', 'd_prime', 'z_score']:
-                # These are typically min thresholds
+            if filter_name in MIN_THRESHOLD_FILTERS and not (isinstance(filter_value, str) and ':' in filter_value):
+                # Numbers are minimum thresholds
                 params[filter_name] = f'gte:{filter_value}'
             else:
                 # Generic range filter, either a plain value or an operator string like "gte:0.5"
@@ -200,14 +239,7 @@ def build_query_params(
             # Direct string/enum filters
             params[filter_name] = filter_value
 
-    # Validate and add source, method and label filters
-    for filter_name, allowed_key in [('source', 'sources'), ('method', 'methods'), ('label', 'labels')]:
-        if filter_name not in user_filters or filter_name not in accepted_params:
-            continue
-        if user_filters[filter_name] in edge_config.get(allowed_key, []):
-            params[filter_name] = user_filters[filter_name]
-
-    return params
+    return params, not_applied
 
 
 async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
@@ -308,7 +340,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 else:
                     lookup_ids = [normalized_id]
 
-                params = build_query_params(
+                params, filters_not_applied = build_query_params(
                     normalized_id, endpoint_param_name, edge_config, filters, limit, verbose, page
                 )
 
@@ -337,6 +369,8 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 }
                 if limit > effective_limit:
                     metadata['limit_capped_to'] = effective_limit
+                if filters_not_applied:
+                    metadata['filters_not_applied'] = filters_not_applied
                 if resolve:
                     metadata['resolved_from'] = param_name
                     metadata['params_used'][endpoint_param_name] = lookup_ids
@@ -376,6 +410,11 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             top_pagination['next_page'] = page + 1
             top_pagination['note'] = f'More results available. Call again with page={page + 1} to continue.'
 
+        queried = [m for m in query_metadata if 'params_used' in m]
+        unused_filters = [
+            name for name in filters if queried and all(name in m.get('filters_not_applied', {}) for m in queried)
+        ]
+
         response_data = {
             '_pagination': top_pagination,
             'entity_id': normalized_id,
@@ -386,6 +425,11 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             'query_metadata': query_metadata,
             'associations': all_associations,
         }
+        if unused_filters:
+            response_data['note'] = (
+                f"Filters not applied to any endpoint: {', '.join(unused_filters)}. "
+                'See filters_not_applied in query_metadata for the reasons, and list_sources for valid values.'
+            )
 
         response_text = json.dumps(response_data, indent=2)
 
