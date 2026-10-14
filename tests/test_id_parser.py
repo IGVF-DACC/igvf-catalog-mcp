@@ -104,6 +104,44 @@ def test_detect_ontology_mondo():
     assert param_name == 'term_id'
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('HP_0033726', 'HP_0033726'),
+        ('hp:0033726', 'HP_0033726'),
+        ('NCIT_C27153', 'NCIT_C27153'),
+        ('ncit:c27153', 'NCIT_C27153'),
+        ('PR_000001', 'PR_000001'),
+        ('EFO:0002690', 'EFO_0002690'),
+        ('VariO_0001', 'VariO_0001'),
+        ('Orphanet:586', 'Orphanet_586'),
+    ],
+)
+def test_generic_ontology_term_ids(identifier, expected):
+    entity_type, param_name = IDParser.detect_entity_type(identifier)
+    assert (entity_type, param_name) == ('ontology', 'term_id')
+    assert IDParser.normalize_identifier(identifier, entity_type, param_name) == expected
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('HGNC:1100', ('gene', 'hgnc_id')),
+        ('ENTREZ:675', ('gene', 'entrez')),
+        ('CPX-9', ('complex', 'complex_id')),
+        ('R-HSA-164843', ('pathway', 'id')),
+        ('Orphanet_586', ('ontology', 'term_id')),
+        ('BRCA1', ('gene', 'name')),
+    ],
+)
+def test_generic_ontology_pattern_keeps_specific_patterns(identifier, expected):
+    assert IDParser.detect_entity_type(identifier) == expected
+
+
+def test_disease_hint_treats_ontology_id_as_term_id():
+    assert IDParser.detect_entity_type('NCIT_C27153', hint='disease') == ('ontology', 'term_id')
+
+
 def test_detect_drug():
     """Test detection of drug IDs."""
     entity_type, param_name = IDParser.detect_entity_type('PA448497')

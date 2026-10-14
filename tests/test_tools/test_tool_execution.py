@@ -45,6 +45,15 @@ async def test_get_entity_ontology_term(fake_catalog):
     assert fake_catalog.params_for('/ontology-terms') == [{'term_id': 'MONDO_0008199', 'page': '0', 'limit': '25'}]
 
 
+async def test_get_entity_generic_ontology_term(fake_catalog):
+    fake_catalog.add('/ontology-terms', [{'term_id': 'HP_0033726', 'name': 'Systemic lupus erythematosus'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'hp:0033726'}))
+
+    assert data['entity_type'] == 'ontology'
+    assert fake_catalog.params_for('/ontology-terms') == [{'term_id': 'HP_0033726', 'page': '0', 'limit': '25'}]
+
+
 async def test_get_entity_uniprot_accession_uses_dbxrefs(fake_catalog):
     fake_catalog.add('/proteins', [{'_id': 'ENSP00000494538', 'names': ['CTCF_HUMAN']}])
 

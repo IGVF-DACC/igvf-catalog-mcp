@@ -64,6 +64,9 @@ API_PAGE_SIZE = 25
 # Gene symbol format; some symbols (e.g. P2RY12, B3GAT1) are also valid UniProt accessions
 GENE_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
 
+# Generic ontology term ID: a prefix of letters, _ or :, and a local ID containing a digit (e.g. NCIT_C27153)
+ONTOLOGY_TERM = r'^([A-Z]+)[_:]([A-Z0-9]*\d[A-Z0-9]*)$'
+
 # UniProt accession format (https://www.uniprot.org/help/accession_numbers)
 UNIPROT_ACCESSION = r'(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})'
 
@@ -107,6 +110,8 @@ class IDParser:
         (r'^GCST\d+$', 'study', 'study_id'),
         # Pathways
         (r'^R-[A-Z]{3}-\d+$', 'pathway', 'id'),
+        # Other ontology terms (e.g. HP_0033726, NCIT_C27153); after the specific patterns, which use : and - too
+        (ONTOLOGY_TERM, 'ontology', 'term_id'),
         # Gene symbols (must be last, as it's most ambiguous)
         (GENE_SYMBOL, 'gene', 'name'),
     ]
@@ -155,7 +160,7 @@ class IDParser:
         raise ValueError(
             f'Could not detect entity type for identifier: {identifier}. '
             f'Supported formats include: ENSG* (genes), rs* (variants), ENSP* (proteins), '
-            f'NC_* (variants), Orphanet_*/MONDO_*/EFO_* (ontology terms), and gene symbols.'
+            f'NC_* (variants), ontology terms such as MONDO_0007915 or HP_0033726, and gene symbols.'
         )
 
     @classmethod
@@ -235,6 +240,7 @@ class IDParser:
             Normalized identifier
         """
         identifier = identifier.strip()
+        original = identifier
 
         if param_name == 'name':
             if entity_type == 'gene':
@@ -248,7 +254,30 @@ class IDParser:
         if param_name == 'hgvs':
             identifier = identifier.replace(':G.', ':g.')
         if entity_type == 'ontology':
-            # Ontology term separators are stored as underscores
-            identifier = identifier.replace(':', '_').replace('ORPHANET_', 'Orphanet_')
+            return cls.normalize_term_id(original)
 
         return identifier
+
+    @classmethod
+    def normalize_term_id(cls, term_id: str) -> str:
+        """
+        Normalize an ontology term ID to the form the catalog stores.
+
+        Separators are stored as underscores and IDs are uppercase, except mixed-case prefixes such as
+        Orphanet_ or VariO_. A mixed-case prefix is kept as typed; Orphanet is recognised in any case.
+
+        Args:
+            term_id: The stripped term ID
+
+        Returns:
+            Normalized term ID
+        """
+        match = re.match(ONTOLOGY_TERM, term_id, re.IGNORECASE)
+        if match is None:
+            return term_id.upper().replace(':', '_')
+        prefix, local_id = match.groups()
+        if prefix.upper() == 'ORPHANET':
+            prefix = 'Orphanet'
+        elif prefix.islower() or prefix.isupper():
+            prefix = prefix.upper()
+        return f'{prefix}_{local_id.upper()}'
