@@ -36,6 +36,9 @@ HINT_TYPES: dict[str, str] = {
     'disease': 'ontology',
 }
 
+# Display name of entity types in messages
+TYPE_LABELS: dict[str, str] = {'ontology': 'ontology term'}
+
 # Lookup parameter used when a hinted identifier is a name rather than an ID
 NAME_PARAMS: dict[str, str] = {
     'gene': 'name',
@@ -72,6 +75,19 @@ GENOMIC_HGVS_CHANGE = r'(?:\d+[A-Z]>[A-Z]|\d+(?:_\d+)?(?:del|dup)|\d+_\d+ins[A-Z
 
 # UniProt accession format (https://www.uniprot.org/help/accession_numbers)
 UNIPROT_ACCESSION = r'(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})'
+
+
+def with_article(noun: str) -> str:
+    """
+    Prefix a noun with its indefinite article.
+
+    Args:
+        noun: The noun, e.g. "ontology term"
+
+    Returns:
+        The noun with "a" or "an"
+    """
+    return f"{'an' if noun[:1] in 'aeiou' else 'a'} {noun}"
 
 
 class IDParser:
@@ -135,8 +151,8 @@ class IDParser:
             argument of the entity's lookup method (see get_client_method)
 
         Raises:
-            ValueError: If the identifier format is not recognized, or the hint is unknown or does not
-                fit the identifier
+            ValueError: If the identifier format is not recognized, the hint is unknown, or the identifier is an
+                ID of a different type than the hint (strings shaped like gene symbols count as names)
         """
         # Normalize identifier
         identifier = identifier.strip()
@@ -149,6 +165,14 @@ class IDParser:
             for pattern, entity_type, param_name in cls.PATTERNS:
                 if entity_type == hinted_type and re.match(pattern, identifier, re.IGNORECASE):
                     return entity_type, param_name  # type: ignore
+            if not re.match(GENE_SYMBOL, identifier, re.IGNORECASE):
+                for pattern, entity_type, param_name in cls.PATTERNS:
+                    if param_name != 'name' and re.match(pattern, identifier, re.IGNORECASE):
+                        expected = 'name' if hinted_type in NAME_PARAMS else 'ID'
+                        raise ValueError(
+                            f"'{identifier}' is {with_article(TYPE_LABELS.get(entity_type, entity_type))} ID, "
+                            f'not {with_article(hint.lower())} {expected}.'
+                        )
             if hinted_type in NAME_PARAMS:
                 return hinted_type, NAME_PARAMS[hinted_type]  # type: ignore
             raise ValueError(

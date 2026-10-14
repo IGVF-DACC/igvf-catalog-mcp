@@ -218,6 +218,36 @@ def test_hint_without_name_lookup_rejects_names():
         IDParser.detect_entity_type('BRCA1', hint='variant')
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'hint', 'message'),
+    [
+        ('ENST00000264010', 'protein', "'ENST00000264010' is a transcript ID, not a protein name."),
+        ('MONDO_0007915', 'gene', "'MONDO_0007915' is an ontology term ID, not a gene name."),
+        ('ENSG00000139618', 'disease', "'ENSG00000139618' is a gene ID, not a disease name."),
+        ('NC_000019.10:19268739:C:T', 'drug', "'NC_000019.10:19268739:C:T' is a variant ID, not a drug name."),
+        ('ENSG00000139618', 'variant', "'ENSG00000139618' is a gene ID, not a variant ID."),
+    ],
+)
+def test_hint_rejects_ids_of_other_types(identifier, hint, message):
+    with pytest.raises(ValueError) as error:
+        IDParser.detect_entity_type(identifier, hint=hint)
+    assert str(error.value) == message
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'hint', 'expected'),
+    [
+        ('P2RY12', 'gene', ('gene', 'name')),
+        ('RS1', 'gene', ('gene', 'name')),
+        ('CA1', 'gene', ('gene', 'name')),
+        ('CA1', 'protein', ('protein', 'name')),
+        ('PA2G4', 'protein', ('protein', 'name')),
+    ],
+)
+def test_hint_accepts_symbol_shaped_ids_as_names(identifier, hint, expected):
+    assert IDParser.detect_entity_type(identifier, hint=hint) == expected
+
+
 def test_unknown_hint():
     with pytest.raises(ValueError, match="Unknown hint: 'cell'"):
         IDParser.detect_entity_type('BRCA1', hint='cell')

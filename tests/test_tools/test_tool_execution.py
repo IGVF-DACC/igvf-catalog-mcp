@@ -630,6 +630,12 @@ async def call_tool_request(name, arguments):
         ('igvf_catalog_find_ld', {'variant_id': 'BRCA1'}, 'Expected a variant ID'),
         ('igvf_catalog_list_sources', {'endpoint': 'nope'}, 'Unknown endpoint: nope'),
         ('igvf_catalog_get_entity', {'id': 'BRCA1', 'hint': 'variant'}, 'is not a variant identifier'),
+        ('igvf_catalog_get_entity', {'id': 'ENST00000264010', 'hint': 'protein'}, 'is a transcript ID, not a protein'),
+        (
+            'igvf_catalog_find_associations',
+            {'entity_id': 'MONDO_0007915', 'relationship': 'genetic', 'hint': 'gene'},
+            'is an ontology term ID, not a gene name',
+        ),
     ],
 )
 async def test_invalid_input_is_a_tool_error(fake_catalog, name, arguments, message):
