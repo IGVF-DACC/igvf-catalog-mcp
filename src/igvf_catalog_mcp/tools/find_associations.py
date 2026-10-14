@@ -25,6 +25,8 @@ FIND_ASSOCIATIONS_TOOL = Tool(
         "'physical' (protein-protein), 'functional' (pathways, GO terms), 'pharmacological' (drug-variant), "
         "'ld' (linkage disequilibrium), 'coding' (coding variant effects), 'transcription' (gene-transcript-protein). "
         'Returns detailed associations with p-values, effect sizes, and sources. '
+        'The limit applies to each data source (endpoint) separately, so a relationship backed by several '
+        'endpoints can return up to limit × endpoints associations; query_metadata lists the per-endpoint counts. '
         'Supports pagination — check _pagination.has_more in the response and use the page parameter '
         'to retrieve additional results.'
     ),
@@ -56,7 +58,10 @@ FIND_ASSOCIATIONS_TOOL = Tool(
             },
             'limit': {
                 'type': 'integer',
-                'description': 'Maximum number of results (default: 25)',
+                'description': (
+                    'Maximum results per data source (endpoint); with several endpoints, '
+                    'up to limit × endpoints rows (default: 25)'
+                ),
                 'minimum': 1,
                 'maximum': 500,
                 'default': 25,
@@ -297,7 +302,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         top_pagination: dict[str, Any] = {
             'current_page': page,
             'limit': limit,
-            'results_returned': len(all_associations[:limit]),
+            'results_returned': len(all_associations),
             'has_more': any_has_more,
         }
         if any_has_more:
@@ -311,7 +316,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             'relationship_type': relationship,
             'num_associations': len(all_associations),
             'query_metadata': query_metadata,
-            'associations': all_associations[:limit],
+            'associations': all_associations,
         }
 
         response_text = json.dumps(response_data, indent=2)

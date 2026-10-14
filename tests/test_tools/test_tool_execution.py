@@ -179,7 +179,7 @@ async def test_find_associations_ontology_term(fake_catalog):
     assert fake_catalog.params_for('/diseases/genes') == [{'disease_id': 'EFO_0004611', 'page': '0', 'limit': '25'}]
 
 
-async def test_find_associations_truncates_and_paginates(fake_catalog):
+async def test_find_associations_limit_is_per_endpoint_and_paginates(fake_catalog):
     fake_catalog.add('/genes/genes', [{'i': i} for i in range(3)])
     fake_catalog.add('/genes/pathways', [{'i': i} for i in range(3)])
 
@@ -191,11 +191,30 @@ async def test_find_associations_truncates_and_paginates(fake_catalog):
     )
 
     assert data['num_associations'] == 6
-    assert len(data['associations']) == 3
+    assert len(data['associations']) == 6
     assert data['_pagination']['has_more'] is True
     assert data['_pagination']['next_page'] == 3
-    assert data['_pagination']['results_returned'] == 3
+    assert data['_pagination']['results_returned'] == 6
     assert fake_catalog.params_for('/genes/genes') == [{'gene_id': 'ENSG00000163874', 'page': '2', 'limit': '3'}]
+
+
+async def test_find_associations_returns_rows_from_every_endpoint(fake_catalog):
+    fake_catalog.add('/genes/variants', [{'variant': f'variants/{i}'} for i in range(2)])
+    fake_catalog.add('/genes/genomic-elements', [{'genomic_element': f'genomic_elements/{i}'} for i in range(2)])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'BRCA1', 'relationship': 'regulatory', 'limit': 2}
+        )
+    )
+
+    endpoints = [a['_endpoint'] for a in data['associations']]
+    assert endpoints == ['genes_variants'] * 2 + ['genes_genomic_elements'] * 2
+    assert data['num_associations'] == len(data['associations']) == 4
+    assert data['_pagination']['results_returned'] == 4
+    assert data['_pagination']['has_more'] is True
+    assert [m['results_count'] for m in data['query_metadata']] == [2, 2]
+    assert all(m['_pagination']['has_more'] for m in data['query_metadata'])
 
 
 async def test_find_associations_endpoint_error_is_reported(fake_catalog):

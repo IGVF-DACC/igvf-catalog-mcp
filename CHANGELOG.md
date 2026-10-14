@@ -20,6 +20,7 @@
   - Gene `regulatory` associations query `/genes/genomic-elements` for E2G predictions and CRISPR screens; `/genomic-elements/genes` only accepts a region, so this part of the query never returned results.
   - Identifier types an endpoint does not accept (e.g. an rsID for `/variants/coding-variants`) are reported in `query_metadata` without calling the API.
 - Fixed existing `ruff check` errors.
+- **`find_associations` returned only the first endpoint's rows**: every endpoint was queried with `limit`, but the combined list was then cut to `limit`, so later endpoints (e.g. `genes_genomic_elements` for a gene's `regulatory` relationship) were never visible on any page. `limit` now applies per endpoint and every fetched row is returned.
 
 ### Added
 - **Contract tests** (`tests/test_contract.py`) checking every method and parameter used by the server against the generated client, and offline tests running all six tools through `call_tool`.
