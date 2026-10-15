@@ -334,3 +334,30 @@ def test_value_list_filter_without_enum_is_passed_through():
 
     assert params['method'] == 'anything'
     assert not not_applied
+
+
+def test_malformed_range_filter_is_not_applied():
+    config = EDGE_ENDPOINTS['genes_genomic_elements']
+
+    params, not_applied = build_query_params('ENSG1', 'gene_id', config, {'score': 'above:0.5'}, 25, False)
+
+    assert 'score' not in params
+    assert not_applied['score'].startswith('invalid value; must be a number or an operator string')
+
+
+def test_numeric_string_range_filter_is_a_minimum():
+    params, not_applied = build_query_params(
+        'ENSG1', 'gene_id', EDGE_ENDPOINTS['genes_genomic_elements'], {'score': '0.5'}, 25, False
+    )
+
+    assert params['score'] == 'gte:0.5'
+    assert not not_applied
+
+
+def test_number_is_an_exact_value_of_other_range_filters():
+    params, not_applied = build_query_params(
+        'ENSG1', 'gene_id', EDGE_ENDPOINTS['genes_variants'], {'effect_size': 2, 'neg_log10_pvalue': 'gte:5'}, 25, False
+    )
+
+    assert (params['effect_size'], params['neg_log10_pvalue']) == ('2', 'gte:5')
+    assert not not_applied

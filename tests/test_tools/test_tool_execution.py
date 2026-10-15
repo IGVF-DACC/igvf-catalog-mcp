@@ -1285,3 +1285,46 @@ async def test_not_found_is_not_a_tool_error(fake_catalog):
 
     assert result.isError is False
     assert result.content[0].text == "No gene found with gene_id='ENSG00000000001'"
+
+
+@pytest.mark.parametrize(
+    ('filters', 'expected'),
+    [
+        ({'score': 'gt:0.9'}, 'gt:0.9'),
+        ({'score': 'lte:1e-2'}, 'lte:1e-2'),
+        ({'score': 0.9}, 'gte:0.9'),
+        ({'score': 1}, 'gte:1'),
+    ],
+)
+async def test_schema_accepts_score_numbers_and_operator_strings(fake_catalog, filters, expected):
+    result = await call_tool_request(
+        'igvf_catalog_find_associations',
+        {'entity_id': 'ENSG00000012048', 'relationship': 'regulatory', 'filters': filters},
+    )
+
+    assert result.isError is False
+    assert fake_catalog.params_for('/genes/genomic-elements')[0]['score'] == expected
+
+
+@pytest.mark.parametrize('filter_name', ['score', 'r2', 'd_prime'])
+@pytest.mark.parametrize('value', ['above 0.9', 'gt0.9', 'eq:0.9', 'gt:'])
+async def test_schema_rejects_malformed_thresholds(fake_catalog, filter_name, value):
+    result = await call_tool_request(
+        'igvf_catalog_find_associations',
+        {'entity_id': 'ENSG00000012048', 'relationship': 'regulatory', 'filters': {filter_name: value}},
+    )
+
+    assert result.isError is True
+    assert 'Input validation error' in result.content[0].text
+    assert fake_catalog.requests == []
+
+
+async def test_schema_accepts_ld_operator_strings(fake_catalog):
+    result = await call_tool_request(
+        'igvf_catalog_find_associations',
+        {'entity_id': 'rs7903146', 'relationship': 'ld', 'filters': {'r2': 'gt:0.8', 'd_prime': 0.9}},
+    )
+
+    assert result.isError is False
+    params = fake_catalog.params_for('/variants/variant-ld')[0]
+    assert (params['r2'], params['d_prime']) == ('gt:0.8', 'gte:0.9')

@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 from typing import Any
 
 from mcp.types import TextContent, Tool
@@ -15,6 +16,29 @@ from ..services.edge_config import (
 from ..services.formatter import ToolError, build_pagination_metadata, format_error
 from ..services.id_parser import IDParser, name_not_found
 from ..services.id_parser import entity_id as node_id
+
+# Operator string of a range filter: gt, gte, lt or lte, a colon and a number (e.g. "gt:0.7")
+RANGE_OPERATOR = r'^(gt|gte|lt|lte):[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$'
+
+
+def threshold_schema(description: str) -> dict[str, Any]:
+    """
+    Build the input schema of a range filter for which a plain number is a minimum.
+
+    Args:
+        description: What the filter thresholds
+
+    Returns:
+        Schema accepting a number or an operator string
+    """
+    return {
+        'anyOf': [{'type': 'number'}, {'type': 'string', 'pattern': RANGE_OPERATOR}],
+        'description': (
+            f'{description}: a number is a minimum (sent as gte:<number>); for other comparisons use an operator '
+            "string gt:, gte:, lt: or lte: followed by a number (e.g. 'gt:0.7')"
+        ),
+    }
+
 
 # Tool definition
 FIND_ASSOCIATIONS_TOOL = Tool(
@@ -86,12 +110,11 @@ FIND_ASSOCIATIONS_TOOL = Tool(
                             "method (e.g. 'two hybrid')"
                         ),
                     },
-                    'score': {
-                        'type': 'number',
-                        'description': 'Minimum score (e.g. E2G prediction score, for gene-genomic element queries)',
-                    },
-                    'r2': {'type': 'number', 'description': 'LD r2 threshold (for LD queries)'},
-                    'd_prime': {'type': 'number', 'description': 'LD D\' threshold (for LD queries)'},
+                    'score': threshold_schema(
+                        'Score threshold (e.g. E2G prediction score, for gene-genomic element queries)'
+                    ),
+                    'r2': threshold_schema('LD r2 threshold (for LD queries)'),
+                    'd_prime': threshold_schema("LD D' threshold (for LD queries)"),
                     'ancestry': {'type': 'string', 'description': 'Population ancestry (for LD queries)'},
                 },
             },
@@ -174,6 +197,29 @@ def resolve_edge_param(param_name: str, edge_config: dict[str, Any]) -> str | No
     return None
 
 
+def parse_number(value: Any) -> int | float | None:
+    """
+    Read a filter value that is a number, or a string holding one.
+
+    Args:
+        value: The filter value
+
+    Returns:
+        The number, or None if the value is not a finite number
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value if math.isfinite(value) else None
+    if isinstance(value, str):
+        try:
+            number = float(value)
+        except ValueError:
+            return None
+        return number if math.isfinite(number) else None
+    return None
+
+
 def build_query_params(
     entity_id: str,
     param_name: str,
@@ -245,12 +291,17 @@ def build_query_params(
         filter_type = supported_filters[filter_name]
 
         if filter_type == 'range':
-            if filter_name in MIN_THRESHOLD_FILTERS and not (isinstance(filter_value, str) and ':' in filter_value):
-                # Numbers are minimum thresholds
-                params[filter_name] = f'gte:{filter_value}'
+            number = parse_number(filter_value)
+            if number is not None:
+                # Numbers are minimum thresholds of MIN_THRESHOLD_FILTERS, otherwise exact values
+                params[filter_name] = f'gte:{number}' if filter_name in MIN_THRESHOLD_FILTERS else str(number)
+            elif isinstance(filter_value, str) and re.match(RANGE_OPERATOR, filter_value.strip()):
+                params[filter_name] = filter_value.strip()
             else:
-                # Generic range filter, either a plain value or an operator string like "gte:0.5"
-                params[filter_name] = str(filter_value)
+                not_applied[filter_name] = (
+                    "invalid value; must be a number or an operator string gt:, gte:, lt: or lte: followed by a "
+                    "number (e.g. 'gt:0.7')"
+                )
         elif filter_type in ['string', 'enum']:
             # Direct string/enum filters
             params[filter_name] = filter_value
