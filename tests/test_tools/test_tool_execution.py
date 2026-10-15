@@ -614,6 +614,38 @@ async def test_search_region_up_to_chromosome_end_has_no_note(fake_catalog):
     assert 'note' not in data
 
 
+async def test_search_region_large_region_warning_is_in_the_json(fake_catalog, sample_gene_data):
+    fake_catalog.add('/genes', [sample_gene_data])
+
+    result = await call_tool('igvf_catalog_search_region', {'region': 'chr2:1-20000000', 'include': ['genes']})
+    data = response_json(result)
+
+    assert result[0].text.startswith('{')
+    assert data['warning'] == 'Large region (19,999,999 bp). Results may be incomplete.'
+    assert data['results']['genes']['items'] == [sample_gene_data]
+    assert 'note' not in data
+
+
+async def test_search_region_of_10_mb_has_no_warning(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_search_region', {'region': 'chr2:0-10M'}))
+
+    assert data['region_size_bp'] == 10_000_000
+    assert 'warning' not in data
+
+
+async def test_search_region_large_clipped_region(fake_catalog):
+    data = response_json(
+        await call_tool('igvf_catalog_search_region', {'region': 'chr19:1-62000000', 'organism': 'Mus musculus'})
+    )
+
+    assert data['region'] == 'chr19:1-61420004'
+    assert data['warning'] == 'Large region (61,420,003 bp). Results may be incomplete.'
+    assert data['note'] == (
+        "The end position '62000000' is beyond the end of chr19 (61,420,004 bp in GRCm39), "
+        'so the region was clipped to chr19:1-61420004.'
+    )
+
+
 async def test_search_region_clipped_with_partial_failure(fake_catalog, sample_gene_data):
     fake_catalog.add('/genes', [sample_gene_data])
     fake_catalog.add('/variants', TimeoutError())

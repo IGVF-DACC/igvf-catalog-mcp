@@ -91,12 +91,7 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
         # Parse and validate the region
         region = RegionParser.parse_region(region_str, organism)
 
-        # Warn if region is very large (> 10 Mb)
         region_size = region.end - region.start
-        if region_size > 10_000_000:
-            warning = f'Warning: Large region ({region_size:,} bp). Results may be incomplete.\n\n'
-        else:
-            warning = ''
 
         # Build queries for different entity types
         queries = {
@@ -158,6 +153,8 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
             'organism': organism,
             'results': response,
         }
+        if region_size > 10_000_000:
+            response_data['warning'] = f'Large region ({region_size:,} bp). Results may be incomplete.'
         notes = []
         if region.requested_end is not None:
             notes.append(
@@ -172,7 +169,7 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
         if notes:
             response_data['note'] = ' '.join(notes)
 
-        response_text = warning + json.dumps(response_data, indent=2)
+        response_text = json.dumps(response_data, indent=2)
 
         return [
             TextContent(
