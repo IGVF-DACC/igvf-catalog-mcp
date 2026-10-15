@@ -14,7 +14,7 @@ authors = [
 ]
 dependencies = [
     "mcp>=1.0.0,<2",
-    "igvf-catalog-async-client @ git+https://github.com/IGVF-DACC/igvf-catalog-async-python-client@dev",
+    "igvf-catalog-async-client==1.3.0",
 ]
 
 [project.optional-dependencies]
