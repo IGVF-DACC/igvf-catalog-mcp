@@ -6,6 +6,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent
 
+from . import __version__
 from .resources.schemas import ALL_RESOURCES, get_resource_content
 from .services.api_client import close_client
 from .tools.find_associations import FIND_ASSOCIATIONS_TOOL, find_associations
@@ -16,7 +17,7 @@ from .tools.resolve_id import RESOLVE_ID_TOOL, resolve_id
 from .tools.search_region import SEARCH_REGION_TOOL, search_region
 
 # Create MCP server instance
-app = Server('igvf-catalog-mcp')
+app = Server('igvf-catalog-mcp', version=__version__)
 
 
 # Register tools

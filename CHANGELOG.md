@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Server version**: the server reported the version of the `mcp` SDK (e.g. 1.30.0) in its MCP `serverInfo`, because `Server` was created without a version. It now reports the package version from `src/igvf_catalog_mcp/__init__.py`.
+
+## [1.3.0] - 2026-10-15
+
 ### Changed
 - **API calls use the generated async client**: the hand-written httpx client is replaced by a thin wrapper (`services/api_client.py`) around `AsyncIgvfCatalogApi` from [`igvf-catalog-async-client`](https://github.com/IGVF-DACC/igvf-catalog-async-python-client). One client is shared by the server process and closed on shutdown. `IGVF_CATALOG_API_URL` still takes the host; `/api` is appended if missing.
 - **`edge_config.py` names client methods**: each edge endpoint has a `client_method` (e.g. `genes_from_variants`) and a `path` without the `/api` prefix, so `_endpoint_path` and `list_sources` now show paths like `/variants/genes`. Verbose support is read from the generated method signature.
