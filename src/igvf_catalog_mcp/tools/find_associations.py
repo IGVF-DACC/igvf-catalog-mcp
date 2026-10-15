@@ -393,6 +393,8 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 continue
 
             # Build query parameters
+            params_used: dict[str, Any] | None = None
+            filters_not_applied: dict[str, str] = {}
             try:
                 if resolve:
                     field = resolution[1]
@@ -412,6 +414,9 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 params, filters_not_applied = build_query_params(
                     normalized_id, endpoint_param_name, edge_config, filters, limit, verbose, page
                 )
+                params_used = {k: v for k, v in params.items() if k not in ['page']}
+                if resolve:
+                    params_used[endpoint_param_name] = lookup_ids
 
                 # Query the endpoint
                 associations = []
@@ -434,7 +439,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     'path': edge_config['path'],
                     'results_count': len(associations),
                     '_pagination': build_pagination_metadata(associations, page, effective_limit, has_more),
-                    'params_used': {k: v for k, v in params.items() if k not in ['page']},
+                    'params_used': params_used,
                 }
                 if limit > effective_limit:
                     metadata['limit_capped_to'] = effective_limit
@@ -443,7 +448,6 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 if resolve:
                     metadata['resolved_from'] = param_name
                     metadata['queried_ids'] = len(lookup_ids)
-                    metadata['params_used'][endpoint_param_name] = lookup_ids
                     if len(lookup_ids) > 1:
                         metadata['_pagination']['limit_applies_to'] = f'each of the {len(lookup_ids)} queried IDs'
                     if not lookup_ids:
@@ -456,13 +460,21 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             except Exception as e:
                 # Log error but continue with other endpoints
                 failed_endpoints.append(endpoint_key)
-                query_metadata.append(
-                    {
-                        'endpoint': endpoint_key,
-                        'path': edge_config['path'],
-                        'error': format_error(e),
-                    }
-                )
+                metadata = {
+                    'endpoint': endpoint_key,
+                    'path': edge_config['path'],
+                    'error': format_error(e),
+                }
+                if params_used is not None:
+                    metadata['params_used'] = params_used
+                    if filters_not_applied:
+                        metadata['filters_not_applied'] = filters_not_applied
+                elif resolve:
+                    metadata['note'] = (
+                        f"Resolving {param_name} '{normalized_id}' to {resolution[0]} failed, "
+                        'so this endpoint was not queried.'
+                    )
+                query_metadata.append(metadata)
 
         if query_metadata and all('error' in m for m in query_metadata):
             errors = '; '.join(f"{m['endpoint']}: {m['error']}" for m in query_metadata)
@@ -489,9 +501,9 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             top_pagination['next_page'] = page + 1
             top_pagination['note'] = f'More results available. Call again with page={page + 1} to continue.'
 
-        queried = [m for m in query_metadata if 'params_used' in m]
+        requested = [m for m in query_metadata if 'params_used' in m]
         unused_filters = [
-            name for name in filters if queried and all(name in m.get('filters_not_applied', {}) for m in queried)
+            name for name in filters if requested and all(name in m.get('filters_not_applied', {}) for m in requested)
         ]
 
         response_data = {

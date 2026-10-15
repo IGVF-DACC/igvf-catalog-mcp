@@ -1299,6 +1299,82 @@ async def test_find_associations_partial_failure_note_combines_with_filter_note(
     )
 
 
+async def test_find_associations_filter_sent_to_failed_endpoint_counts_as_applied(fake_catalog):
+    fake_catalog.add('/genes/genomic-elements', TimeoutError())
+    fake_catalog.add('/genes/variants', [{'variant': 'variants/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {**BRCA1_REGULATORY, 'limit': 2, 'filters': {'score': 0.7}})
+    )
+
+    assert data['note'] == (
+        'The query failed for genes_genomic_elements (see the error in query_metadata), '
+        'so _pagination.has_more covers only the endpoints that succeeded.'
+    )
+    failed = data['query_metadata'][1]
+    assert failed == {
+        'endpoint': 'genes_genomic_elements',
+        'path': '/genes/genomic-elements',
+        'error': TIMEOUT_ERROR,
+        'params_used': {'gene_id': 'ENSG00000012048', 'limit': 2, 'score': 'gte:0.7'},
+    }
+    assert data['query_metadata'][0]['filters_not_applied'] == {'score': 'not supported by this endpoint'}
+    assert data['num_associations'] == data['_pagination']['results_returned'] == 1
+    assert data['_pagination']['has_more'] is False
+
+
+async def test_find_associations_failed_endpoint_reports_filters_not_applied(fake_catalog):
+    fake_catalog.add('/genes/genomic-elements', TimeoutError())
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {**BRCA1_REGULATORY, 'filters': {'source': 'NOPE'}})
+    )
+
+    assert data['note'].endswith(
+        'Filters not applied to any endpoint: source. '
+        'See filters_not_applied in query_metadata for the reasons, and list_sources for valid values.'
+    )
+    for metadata in data['query_metadata']:
+        assert metadata['filters_not_applied']['source'].startswith('invalid value; valid: ')
+
+
+async def test_find_associations_every_endpoint_failed_with_filters(fake_catalog):
+    fake_catalog.add('/genes/variants', TimeoutError())
+    fake_catalog.add('/genes/genomic-elements', TimeoutError())
+
+    with pytest.raises(ToolError) as error:
+        await call_tool('igvf_catalog_find_associations', {**BRCA1_REGULATORY, 'filters': {'score': 0.7}})
+
+    assert str(error.value) == (
+        f'Error finding associations: genes_variants: {TIMEOUT_ERROR}; genes_genomic_elements: {TIMEOUT_ERROR}'
+    )
+
+
+async def test_find_associations_failed_resolution_is_left_out_of_filter_note(fake_catalog):
+    fake_catalog.add('/variants', TimeoutError())
+    fake_catalog.add('/variants/variant-ld', [{'variant': 'variants/x'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'rs738409', 'relationship': 'all', 'filters': {'source': 'NOPE'}},
+        )
+    )
+
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    coding = metadata['variants_coding_variants']
+    assert coding['error'] == TIMEOUT_ERROR
+    assert coding['note'] == "Resolving rsid 'rs738409' to spdi failed, so this endpoint was not queried."
+    assert 'params_used' not in coding
+    assert all('params_used' in m for name, m in metadata.items() if name != 'variants_coding_variants')
+    assert data['note'] == (
+        'The query failed for variants_coding_variants (see the error in query_metadata), '
+        'so _pagination.has_more covers only the endpoints that succeeded. '
+        'Filters not applied to any endpoint: source. '
+        'See filters_not_applied in query_metadata for the reasons, and list_sources for valid values.'
+    )
+
+
 async def test_find_associations_unsupported_identifier_is_not_a_failure(fake_catalog, monkeypatch):
     monkeypatch.setitem(EDGE_ENDPOINTS, 'genes_genes', {**EDGE_ENDPOINTS['genes_genes'], 'from_params': ['hgnc_id']})
 
