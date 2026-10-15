@@ -111,6 +111,35 @@ async def test_get_entity_par_y_transcript_id(fake_catalog):
     ]
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'path', 'param_name', 'expected'),
+    [
+        ('ENSG00000141510.17', '/genes', 'gene_id', 'ENSG00000141510'),
+        ('ENST00000264010.10', '/transcripts', 'transcript_id', 'ENST00000264010'),
+        ('ENSP00000264010.4', '/proteins', 'protein_id', 'ENSP00000264010.4'),
+    ],
+)
+async def test_get_entity_versioned_ensembl_ids(fake_catalog, identifier, path, param_name, expected):
+    result = await call_tool('igvf_catalog_get_entity', {'id': identifier})
+
+    assert fake_catalog.params_for(path) == [{param_name: expected, 'page': '0', 'limit': '25'}]
+    assert expected in result[0].text
+
+
+async def test_find_associations_versioned_gene_id_is_queried_without_version(fake_catalog):
+    fake_catalog.add('/genes/genomic-elements', [{'gene': 'genes/ENSG00000012048'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'ENSG00000012048.23', 'relationship': 'regulatory'}
+        )
+    )
+
+    assert data['entity_id'] == 'ENSG00000012048'
+    assert data['num_associations'] >= 1
+    assert fake_catalog.params_for('/genes/genomic-elements')[0]['gene_id'] == 'ENSG00000012048'
+
+
 async def test_find_associations_par_y_gene_id(fake_catalog):
     fake_catalog.add('/genes/transcripts', [{'gene': 'genes/ENSG00000002586_PAR_Y', 'transcript': 'transcripts/x'}])
 

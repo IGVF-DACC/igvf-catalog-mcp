@@ -414,6 +414,8 @@ class IDParser:
         Normalize an identifier for API queries.
 
         IDs are matched case-insensitively, so they are converted to the case the catalog stores.
+        The catalog stores Ensembl gene and transcript IDs without a version, so it is removed
+        (ENSG00000141510.17 → ENSG00000141510, ENSG00000002586.20_PAR_Y → ENSG00000002586_PAR_Y).
         Names are passed through, except gene symbols, which are uppercase.
 
         Args:
@@ -436,6 +438,8 @@ class IDParser:
             return identifier.lower()
 
         identifier = identifier.upper()
+        if param_name in ['gene_id', 'transcript_id']:
+            identifier = re.sub(r'\.\d+', '', identifier)
         if param_name == 'hgvs':
             sequence, change = identifier.split(':G.', 1)
             change = re.sub(r'DELINS|DEL|DUP|INS', lambda match: match.group().lower(), change)
