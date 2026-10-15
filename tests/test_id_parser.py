@@ -2,7 +2,13 @@
 
 import pytest
 
-from igvf_catalog_mcp.services.id_parser import IDParser
+from igvf_catalog_mcp.services.id_parser import (
+    ONTOLOGY_PREFIX_CASE,
+    ONTOLOGY_PREFIXES,
+    IDParser,
+    name_matches,
+    name_not_found,
+)
 
 
 def test_detect_gene_ensembl():
@@ -48,6 +54,31 @@ def test_detect_variant_hgvs():
         'NC_000001.11:g.12346A>G')
     assert entity_type == 'variant'
     assert param_name == 'hgvs'
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'param_name', 'expected'),
+    [
+        ('NC_000016.10:19999964:A:', 'spdi', 'NC_000016.10:19999964:A:'),
+        ('nc_000001.11:1000099::t', 'spdi', 'NC_000001.11:1000099::T'),
+        ('NC_000019.10:g.19259535_19259538del', 'hgvs', 'NC_000019.10:g.19259535_19259538del'),
+        ('NC_000019.10:G.19259535_19259538DEL', 'hgvs', 'NC_000019.10:g.19259535_19259538del'),
+        ('NC_000016.10:g.19999965del', 'hgvs', 'NC_000016.10:g.19999965del'),
+        ('nc_000019.10:g.19259538_19259539insagac', 'hgvs', 'NC_000019.10:g.19259538_19259539insAGAC'),
+        ('NC_000001.11:g.1000_1001delinsTT', 'hgvs', 'NC_000001.11:g.1000_1001delinsTT'),
+        ('NC_000001.11:g.1000_1003DUP', 'hgvs', 'NC_000001.11:g.1000_1003dup'),
+        ('NC_000001.11:g.1000dup', 'hgvs', 'NC_000001.11:g.1000dup'),
+    ],
+)
+def test_detect_indel_variants(identifier, param_name, expected):
+    assert IDParser.detect_entity_type(identifier) == ('variant', param_name)
+    assert IDParser.normalize_identifier(identifier, 'variant', param_name) == expected
+
+
+@pytest.mark.parametrize('identifier', ['NC_000001.11:g.1000ins', 'NC_000001.11:g.1000insA', 'NC_000001.11:g.1000_del'])
+def test_reject_malformed_hgvs(identifier):
+    with pytest.raises(ValueError, match='Could not detect entity type'):
+        IDParser.detect_entity_type(identifier)
 
 
 def test_detect_variant_ca_id():
@@ -104,6 +135,87 @@ def test_detect_ontology_mondo():
     assert param_name == 'term_id'
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('HP_0033726', 'HP_0033726'),
+        ('hp:0033726', 'HP_0033726'),
+        ('NCIT_C27153', 'NCIT_C27153'),
+        ('ncit:c27153', 'NCIT_C27153'),
+        ('PR_000001', 'PR_000001'),
+        ('EFO:0002690', 'EFO_0002690'),
+        ('VariO_0001', 'VariO_0001'),
+        ('vario_0001', 'VariO_0001'),
+        ('VARIO:0001', 'VariO_0001'),
+        ('ncbitaxon_9606', 'NCBITaxon_9606'),
+        ('NCBITAXON:9606', 'NCBITaxon_9606'),
+        ('hp_0033726', 'HP_0033726'),
+        ('Orphanet:586', 'Orphanet_586'),
+        ('orphanet:586', 'Orphanet_586'),
+        ('afpo_0000056', 'AfPO_0000056'),
+        ('hsapdv_0000227', 'HsapDv_0000227'),
+        ('cvcl_e829', 'CVCL_E829'),
+        ('mondo:0007915', 'MONDO_0007915'),
+        ('Oncotree_ACC', 'Oncotree_ACC'),
+        ('oncotree_acc', 'Oncotree_ACC'),
+        ('ONCOTREE:AMLNPM1', 'Oncotree_AMLNPM1'),
+        ('oncotree_head_neck', 'Oncotree_HEAD_NECK'),
+        ('Oncotree_hcl-v', 'Oncotree_HCL-V'),
+        ('pr_a6h6a9-1', 'PR_A6H6A9-1'),
+        ('MBA_ENTITY', 'MBA_ENTITY'),
+        ('hba_4005', 'HBA_4005'),
+        ('Oncotree_AA', 'Oncotree_AA'),
+        ('HBA:HUMAN', 'HBA_HUMAN'),
+    ],
+)
+def test_generic_ontology_term_ids(identifier, expected):
+    entity_type, param_name = IDParser.detect_entity_type(identifier)
+    assert (entity_type, param_name) == ('ontology', 'term_id')
+    assert IDParser.normalize_identifier(identifier, entity_type, param_name) == expected
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('HGNC:1100', ('gene', 'hgnc_id')),
+        ('ENTREZ:675', ('gene', 'entrez')),
+        ('CPX-9', ('complex', 'complex_id')),
+        ('R-HSA-164843', ('pathway', 'id')),
+        ('Orphanet_586', ('ontology', 'term_id')),
+        ('BRCA1', ('gene', 'name')),
+    ],
+)
+def test_generic_ontology_pattern_keeps_specific_patterns(identifier, expected):
+    assert IDParser.detect_entity_type(identifier) == expected
+
+
+@pytest.mark.parametrize(
+    'identifier',
+    ['NM_000546', 'NP_000537', 'chrX:1000', 'XYZ_0001', 'chr1:1000', 'NC_000017', 'Oncotree_', 'Oncotree_A__B',
+     'Oncotree_-A', 'Oncotree_A-', 'type_two', 'CHR_9606-chr1', 'lipidmaps:LMPK12010207', 'HBA_HUMAN', 'hba_human',
+     'GO_MOUSE', 'CL_ECOLI', 'CTCF_HUMAN'],
+)
+def test_unknown_prefixes_are_not_ontology_term_ids(identifier):
+    with pytest.raises(ValueError, match='Could not detect entity type'):
+        IDParser.detect_entity_type(identifier)
+
+
+def test_ontology_prefix_table_is_consistent():
+    assert len(ONTOLOGY_PREFIX_CASE) == len(ONTOLOGY_PREFIXES)
+    assert {
+        'MONDO', 'EFO', 'GO', 'DOID', 'UBERON', 'CL', 'CHEBI', 'OBA', 'HP', 'NCIT', 'Orphanet', 'VariO', 'Oncotree'
+    } <= set(ONTOLOGY_PREFIXES)
+
+
+@pytest.mark.parametrize('identifier', ['NCIT_C27153', 'Oncotree_ACC', 'oncotree_acc'])
+def test_disease_hint_treats_ontology_id_as_term_id(identifier):
+    assert IDParser.detect_entity_type(identifier, hint='disease') == ('ontology', 'term_id')
+
+
+def test_disease_hint_keeps_names_with_underscores():
+    assert IDParser.detect_entity_type('type_two', hint='disease') == ('ontology', 'name')
+
+
 def test_detect_drug():
     """Test detection of drug IDs."""
     entity_type, param_name = IDParser.detect_entity_type('PA448497')
@@ -155,6 +267,126 @@ def test_hint_without_name_lookup_rejects_names():
         IDParser.detect_entity_type('BRCA1', hint='variant')
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'hint', 'message'),
+    [
+        ('ENST00000264010', 'protein', "'ENST00000264010' is a transcript ID, not a protein name."),
+        ('MONDO_0007915', 'gene', "'MONDO_0007915' is an ontology term ID, not a gene name."),
+        ('ENSG00000139618', 'disease', "'ENSG00000139618' is a gene ID, not a disease name."),
+        ('NC_000019.10:19268739:C:T', 'drug', "'NC_000019.10:19268739:C:T' is a variant ID, not a drug name."),
+        ('ENSG00000139618', 'variant', "'ENSG00000139618' is a gene ID, not a variant ID."),
+        ('CPX-9', 'gene', "'CPX-9' is a complex ID, not a gene name."),
+        ('R-HSA-164843', 'gene', "'R-HSA-164843' is a pathway ID, not a gene name."),
+        ('P49711-2', 'gene', "'P49711-2' is a protein ID, not a gene name."),
+        ('Oncotree_ACC', 'gene', "'Oncotree_ACC' is an ontology term ID, not a gene name."),
+        ('NCIT_C27153', 'protein', "'NCIT_C27153' is an ontology term ID, not a protein name."),
+        ('Oncotree_ACC', 'protein', "'Oncotree_ACC' is an ontology term ID, not a protein name."),
+        ('HBA_9HIV1', 'protein', "'HBA_9HIV1' is an ontology term ID, not a protein name."),
+    ],
+)
+def test_hint_rejects_ids_of_other_types(identifier, hint, message):
+    with pytest.raises(ValueError) as error:
+        IDParser.detect_entity_type(identifier, hint=hint)
+    assert str(error.value) == message
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'hint', 'expected'),
+    [
+        ('P2RY12', 'gene', ('gene', 'name')),
+        ('RS1', 'gene', ('gene', 'name')),
+        ('CA1', 'gene', ('gene', 'name')),
+        ('CA1', 'protein', ('protein', 'name')),
+        ('PA2G4', 'protein', ('protein', 'name')),
+    ],
+)
+def test_hint_accepts_symbol_shaped_ids_as_names(identifier, hint, expected):
+    assert IDParser.detect_entity_type(identifier, hint=hint) == expected
+
+
+@pytest.mark.parametrize('identifier', ['HBA_HUMAN', 'hba_human', 'CTCF_HUMAN', 'P53_MOUSE'])
+def test_protein_hint_accepts_uniprot_entry_names(identifier):
+    assert IDParser.detect_entity_type(identifier, hint='protein') == ('protein', 'name')
+
+
+@pytest.mark.parametrize('identifier', ['Orphanet_586', 'CHEBI_10', 'NCIT_C1000', 'CVCL_0001'])
+def test_protein_hint_rejects_ontology_term_ids_with_short_local_ids(identifier):
+    with pytest.raises(ValueError) as error:
+        IDParser.detect_entity_type(identifier, hint='protein')
+    assert str(error.value) == f"'{identifier}' is an ontology term ID, not a protein name."
+
+
+@pytest.mark.parametrize('identifier', ['HBA_HUMAN', 'CTCF_HUMAN'])
+async def test_identify_uniprot_entry_name_without_hint_is_not_detected(fake_catalog, identifier):
+    with pytest.raises(ValueError, match='^Could not detect entity type'):
+        await IDParser.identify(identifier)
+    assert fake_catalog.params_for('/ontology-terms') == []
+
+
+@pytest.mark.parametrize(
+    'symbol',
+    ['HLA-A', 'HLA-DRB1', 'NKX2-1', 'MT-ND1', 'LINC00473', 'ZNF33A-AS1', 'C1orf112', 'hsa-mir-423',
+     'ARHGAP27P1-BPTFP1-KPNA2P3'],
+)
+def test_detect_gene_symbols_with_hyphens_and_lowercase(symbol):
+    assert IDParser.detect_entity_type(symbol) == ('gene', 'name')
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('CPX-9', ('complex', 'complex_id')),
+        ('R-HSA-164843', ('pathway', 'id')),
+        ('P49711-2', ('protein', 'protein_id')),
+        ('ENSG00000139618', ('gene', 'gene_id')),
+    ],
+)
+def test_hyphenated_ids_keep_their_type(identifier, expected):
+    assert IDParser.detect_entity_type(identifier) == expected
+
+
+@pytest.mark.parametrize('identifier', ['HLA-', '-HLA', 'HLA--A', 'A', 'A' * 26])
+def test_reject_malformed_gene_symbols(identifier):
+    with pytest.raises(ValueError, match='Could not detect entity type'):
+        IDParser.detect_entity_type(identifier)
+
+
+@pytest.mark.parametrize('identifier', ['', ' ', '\t\n'])
+@pytest.mark.parametrize('hint', [None, 'gene', 'protein', 'disease', 'drug', 'complex', 'variant', 'transcript'])
+def test_blank_identifier_is_rejected(identifier, hint):
+    with pytest.raises(ValueError, match='^The identifier is empty'):
+        IDParser.detect_entity_type(identifier, hint=hint)
+
+
+@pytest.mark.parametrize('hint', [None, 'gene', 'protein', 'disease'])
+async def test_identify_blank_identifier_makes_no_request(fake_catalog, hint):
+    with pytest.raises(ValueError, match='^The identifier is empty'):
+        await IDParser.identify(' ', hint)
+
+    assert fake_catalog.requests == []
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('ENSG00000002586_PAR_Y', ('gene', 'gene_id', 'ENSG00000002586_PAR_Y')),
+        ('ensg00000002586_par_y', ('gene', 'gene_id', 'ENSG00000002586_PAR_Y')),
+        ('ENST00000611428_PAR_Y', ('transcript', 'transcript_id', 'ENST00000611428_PAR_Y')),
+        ('enst00000611428_Par_Y', ('transcript', 'transcript_id', 'ENST00000611428_PAR_Y')),
+    ],
+)
+def test_detect_par_y_ids(identifier, expected):
+    entity_type, param_name = IDParser.detect_entity_type(identifier)
+    assert (entity_type, param_name, IDParser.normalize_identifier(identifier, entity_type, param_name)) == expected
+
+
+def test_par_y_ids_are_not_gene_names():
+    assert IDParser.detect_entity_type('ENSG00000002586_PAR_Y', hint='gene') == ('gene', 'gene_id')
+    assert IDParser.detect_entity_type('ENST00000611428_PAR_Y', hint='transcript') == ('transcript', 'transcript_id')
+    with pytest.raises(ValueError, match="^'ENSG00000002586_PAR_Y' is a gene ID, not a protein name.$"):
+        IDParser.detect_entity_type('ENSG00000002586_PAR_Y', hint='protein')
+
+
 def test_unknown_hint():
     with pytest.raises(ValueError, match="Unknown hint: 'cell'"):
         IDParser.detect_entity_type('BRCA1', hint='cell')
@@ -171,7 +403,11 @@ def test_invalid_identifier():
     [
         ('brca1', 'BRCA1'),
         ('ensg00000141510', 'ENSG00000141510'),
-        ('enst00000443707.2', 'ENST00000443707.2'),
+        ('enst00000443707.2', 'ENST00000443707'),
+        ('ENSG00000141510.17', 'ENSG00000141510'),
+        ('ENSG00000002586.20_PAR_Y', 'ENSG00000002586_PAR_Y'),
+        ('enst00000611428.5_par_y', 'ENST00000611428_PAR_Y'),
+        ('ENSP00000264010.4', 'ENSP00000264010.4'),
         ('p49711-1', 'P49711-1'),
         ('p49711', 'P49711'),
         ('RS7903146', 'rs7903146'),
@@ -208,19 +444,224 @@ def test_get_client_method():
 
 
 async def test_identify_gene_symbol_shaped_like_uniprot_accession(fake_catalog):
-    fake_catalog.add('/genes', [{'_id': 'ENSG00000169313', 'name': 'P2RY12'}])
+    gene = {'_id': 'ENSG00000169313', 'name': 'P2RY12'}
+    fake_catalog.add('/genes', [gene])
 
-    assert await IDParser.identify('p2ry12') == ('gene', 'name', 'P2RY12')
-    assert fake_catalog.params_for('/genes') == [{'name': 'P2RY12', 'page': '0'}]
+    identification = await IDParser.identify('p2ry12')
+
+    assert identification[:3] == ('gene', 'name', 'P2RY12')
+    assert identification.matches == [gene]
+    assert fake_catalog.params_for('/genes') == [{'name': 'P2RY12', 'limit': '500', 'page': '0'}]
 
 
 async def test_identify_uniprot_accession_without_matching_gene(fake_catalog):
     fake_catalog.add('/genes', [{'_id': 'ENSG00000000001', 'name': 'P4971'}])
 
-    assert await IDParser.identify('P49711') == ('protein', 'dbxrefs', 'P49711')
+    identification = await IDParser.identify('P49711')
+
+    assert identification == ('protein', 'dbxrefs', 'P49711', None, None)
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'symbol'),
+    [('RS1', 'RS1'), ('rs1', 'RS1'), ('CA1', 'CA1'), ('ca2', 'CA2'), ('PA2', 'PA2'), ('GCST1', 'GCST1')],
+)
+async def test_identify_gene_symbol_shaped_like_other_ids(fake_catalog, identifier, symbol):
+    gene = {'_id': 'ENSG00000102104', 'name': symbol}
+    fake_catalog.add('/genes', [gene])
+
+    identification = await IDParser.identify(identifier)
+
+    assert identification == ('gene', 'name', symbol, [gene], [])
+    assert fake_catalog.params_for('/genes') == [{'name': symbol, 'limit': '500', 'page': '0'}]
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('rs7903146', ('variant', 'rsid', 'rs7903146')),
+        ('CA9324761', ('variant', 'ca_id', 'CA9324761')),
+        ('RS1', ('variant', 'rsid', 'rs1')),
+    ],
+)
+async def test_identify_symbol_shaped_ids_without_exact_gene(fake_catalog, identifier, expected):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000102104', 'name': 'RS1L'}])
+
+    assert await IDParser.identify(identifier) == (*expected, None, None)
+    assert len(fake_catalog.params_for('/genes')) == 1
+
+
+async def test_identify_gene_symbol_keeps_only_exact_matches(fake_catalog):
+    brca1 = {'_id': 'ENSG00000012048', 'name': 'BRCA1'}
+    brca2 = {'_id': 'ENSG00000139618', 'name': 'BRCA2'}
+    fake_catalog.add('/genes', [brca2, brca1])
+
+    assert await IDParser.identify('brca1') == ('gene', 'name', 'BRCA1', [brca1], [brca2])
+    assert await IDParser.identify('BRCA', hint='gene') == ('gene', 'name', 'BRCA', [], [brca2, brca1])
+
+
+async def test_identify_long_ids_skip_gene_check(fake_catalog):
+    assert await IDParser.identify('ENSG00000139618') == ('gene', 'gene_id', 'ENSG00000139618', None, None)
+    assert await IDParser.identify('rs123456789') == ('variant', 'rsid', 'rs123456789', None, None)
+    assert fake_catalog.requests == []
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('CPX-9', ('complex', 'complex_id', 'CPX-9')),
+        ('r-hsa-164843', ('pathway', 'id', 'R-HSA-164843')),
+        ('P49711-2', ('protein', 'protein_id', 'P49711-2')),
+        ('ENSP00000264010', ('protein', 'protein_id', 'ENSP00000264010')),
+    ],
+)
+async def test_identify_hyphenated_and_long_ids_skip_gene_check(fake_catalog, identifier, expected):
+    assert await IDParser.identify(identifier) == (*expected, None, None)
+    assert fake_catalog.requests == []
+
+
+async def test_identify_hyphenated_gene_symbol(fake_catalog):
+    genes = [{'_id': 'ENSG00000206503', 'name': 'HLA-A'}, {'_id': 'ENSG00000206505', 'name': 'HLA-A'}]
+    fake_catalog.add('/genes', [*genes, {'_id': 'ENSG00000204525', 'name': 'HLA-C'}])
+
+    identification = await IDParser.identify('hla-a')
+
+    assert identification[:4] == ('gene', 'name', 'HLA-A', genes)
+    assert fake_catalog.params_for('/genes') == [{'name': 'HLA-A', 'limit': '500', 'page': '0'}]
+
+
+async def test_identify_gene_symbol_keeps_catalog_case(fake_catalog):
+    gene = {'_id': 'ENSG00000000460', 'name': 'C1orf112'}
+    fake_catalog.add('/genes', [gene])
+
+    assert await IDParser.identify('C1ORF112') == ('gene', 'name', 'C1orf112', [gene], [])
+    assert fake_catalog.params_for('/genes') == [{'name': 'C1ORF112', 'limit': '500', 'page': '0'}]
 
 
 async def test_identify_hint_skips_gene_check(fake_catalog):
-    assert await IDParser.identify('P2RY12', hint='protein') == ('protein', 'dbxrefs', 'P2RY12')
-    assert await IDParser.identify('rs1') == ('variant', 'rsid', 'rs1')
+    assert await IDParser.identify('P2RY12', hint='protein') == ('protein', 'dbxrefs', 'P2RY12', None, None)
+    assert await IDParser.identify('rs1', hint='variant') == ('variant', 'rsid', 'rs1', None, None)
+    assert await IDParser.identify('CA1', hint='variant') == ('variant', 'ca_id', 'CA1', None, None)
     assert fake_catalog.requests == []
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'symbol', 'query'),
+    [
+        ('C4B_2', 'C4B_2', 'C4B_2'),
+        ('y_rna', 'Y_RNA', 'Y_RNA'),
+        ('7sk', '7SK', '7SK'),
+        ('5S_rRNA', '5S_rRNA', '5S_RRNA'),
+        ('Metazoa_SRP', 'Metazoa_SRP', 'METAZOA_SRP'),
+        ('CTD-2194D22.4', 'CTD-2194D22.4', 'CTD-2194D22.4'),
+    ],
+)
+async def test_identify_irregular_gene_symbol(fake_catalog, identifier, symbol, query):
+    gene = {'_id': 'ENSG00000224389', 'name': symbol}
+    other = {'_id': 'ENSG00000000001', 'name': f'{symbol}X'}
+    fake_catalog.add('/genes', [other, gene])
+
+    assert await IDParser.identify(identifier) == ('gene', 'name', symbol, [gene], [other])
+    assert fake_catalog.params_for('/genes') == [{'name': query, 'limit': '500', 'page': '0'}]
+
+
+@pytest.mark.parametrize('identifier', ['NM_000546', 'NP_000537', 'XYZ_0001', '7SKX'])
+async def test_identify_irregular_symbol_without_exact_gene_is_not_detected(fake_catalog, identifier):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000141510', 'name': 'TP53'}])
+
+    with pytest.raises(ValueError, match='^Could not detect entity type'):
+        await IDParser.identify(identifier)
+    assert len(fake_catalog.params_for('/genes')) == 1
+
+
+@pytest.mark.parametrize('identifier', ['chrX:1000', '???', 'C4B 2', '_C4B', '1234', 'A' * 26])
+async def test_identify_non_symbols_skip_gene_lookup(fake_catalog, identifier):
+    with pytest.raises(ValueError, match='^Could not detect entity type'):
+        await IDParser.identify(identifier)
+    assert fake_catalog.requests == []
+
+
+def test_irregular_gene_symbols_need_a_lookup_to_be_detected():
+    with pytest.raises(ValueError, match='^Could not detect entity type'):
+        IDParser.detect_entity_type('C4B_2')
+    assert IDParser.detect_entity_type('C4B_2', hint='gene') == ('gene', 'name')
+
+
+async def test_identify_irregular_gene_symbol_with_gene_hint(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000000001', 'name': 'C4B'}])
+
+    assert await IDParser.identify('C4B_2', hint='gene') == (
+        'gene', 'name', 'C4B_2', [], [{'_id': 'ENSG00000000001', 'name': 'C4B'}]
+    )
+
+
+async def test_lookup_name_matches_other_names_case_insensitively(fake_catalog):
+    lupus = {'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus', 'synonyms': ['lupus']}
+    sle = {'term_id': 'MONDO_0007915', 'name': 'systemic lupus erythematosus', 'synonyms': ['SLE']}
+    fake_catalog.add('/ontology-terms', [lupus, sle])
+
+    assert await IDParser.lookup_name('ontology', 'Lupus') == ([lupus], [sle])
+
+
+@pytest.mark.parametrize(
+    ('entity_type', 'path', 'params'),
+    [
+        ('ontology', '/ontology-terms', ['name', 'synonyms']),
+        ('protein', '/proteins', ['name', 'uniprot_name', 'uniprot_full_name']),
+        ('gene', '/genes', ['name']),
+        ('drug', '/drugs', ['name']),
+        ('complex', '/complexes', ['name']),
+    ],
+)
+async def test_lookup_name_searches_every_name_field(fake_catalog, entity_type, path, params):
+    await IDParser.lookup_name(entity_type, 'x')
+
+    assert [next(iter(set(request) - {'limit', 'page'})) for request in fake_catalog.params_for(path)] == params
+
+
+@pytest.mark.parametrize('name', ['', '  '])
+async def test_lookup_name_rejects_blank_name(fake_catalog, name):
+    with pytest.raises(ValueError, match='^The name is empty'):
+        await IDParser.lookup_name('ontology', name)
+
+    assert fake_catalog.requests == []
+
+
+async def test_lookup_name_merges_candidates_by_id(fake_catalog):
+    lupus = {'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus', 'synonyms': ['lupus']}
+    efo = {'term_id': 'EFO_0002690', 'name': 'obsolete_systemic lupus erythematosus', 'synonyms': ['lupus']}
+    sle = {'term_id': 'MONDO_0007915', 'name': 'systemic lupus erythematosus', 'synonyms': ['SLE']}
+    fake_catalog.add('/ontology-terms', [lupus, sle], params={'name': 'lupus'})
+    fake_catalog.add('/ontology-terms', [efo, lupus], params={'synonyms': 'lupus'})
+
+    assert await IDParser.lookup_name('ontology', 'lupus') == ([lupus, efo], [sle])
+
+
+@pytest.mark.parametrize(
+    ('entity', 'name'),
+    [
+        ({'name': 'CTCF', 'uniprot_names': ['CTCF_HUMAN']}, 'ctcf'),
+        ({'name': 'CTCF', 'uniprot_names': ['CTCF_HUMAN']}, 'ctcf_human'),
+        ({'name': 'CTCF', 'uniprot_full_names': ['Transcriptional repressor CTCF']}, 'transcriptional repressor ctcf'),
+    ],
+)
+def test_name_matches_protein_fields(entity, name):
+    assert name_matches(entity, 'protein', name)
+
+
+def test_name_matches_is_exact():
+    assert not name_matches({'name': 'LIVAR'}, 'gene', 'LIVER')
+    assert not name_matches({'name': 'warfarin'}, 'drug', 'warfarin sodium')
+    assert name_matches({'name': 'warfarin'}, 'drug', 'Warfarin')
+
+
+def test_name_not_found_suggests_near_matches():
+    assert name_not_found('gene', 'LIVER', [{'_id': 'ENSG00000266304', 'name': 'LIVAR'}]) == (
+        "No gene found with symbol 'LIVER'. Did you mean: LIVAR?"
+    )
+    assert name_not_found('drug', 'warfarine', []) == "No drug found with name 'warfarine'"
+    assert name_not_found('ontology', 'lupu', [{'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus'}]) == (
+        "No ontology term found with name 'lupu'. Did you mean: lupus erythematosus (MONDO_0004670)?"
+    )
+    many = [{'name': f'GENE{i}'} for i in range(12)]
+    assert name_not_found('gene', 'GENE', many).endswith('GENE9, …?')

@@ -27,6 +27,7 @@ FIND_LD_TOOL = Tool(
             'variant_id': {
                 'type': 'string',
                 'description': "Variant identifier (e.g., 'rs12345', 'NC_000011.10:9083634:A:T')",
+                'minLength': 1,
             },
             'r2_threshold': {
                 'type': 'number',
@@ -90,14 +91,15 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
         verbose = arguments.get('verbose', False)
         page = arguments.get('page', 0)
 
-        # Detect variant type and normalize ID
-        entity_type, param_name, normalized_id = await IDParser.identify(variant_id)
-
-        if entity_type != 'variant':
+        # Detect variant type and normalize ID; symbol-shaped IDs such as RS1 are variants here
+        try:
+            entity_type, param_name, normalized_id, _, _ = await IDParser.identify(variant_id, 'variant')
+        except ValueError:
+            entity_type, _ = IDParser.detect_entity_type(variant_id)
             raise ToolError(
                 f'Error: Expected a variant ID, but got {entity_type}. '
                 f'Please provide a valid variant identifier (rsID, SPDI, HGVS, or ClinGen Allele ID).'
-            )
+            ) from None
 
         # Build query parameters
         params = {
@@ -119,8 +121,8 @@ async def find_ld(arguments: dict[str, Any]) -> list[TextContent]:
         # Query the API
         ld_results = await get_client().call(EDGE_ENDPOINTS['variants_variants']['client_method'], **params)
 
-        # Process results
-        if not ld_results:
+        # Process results; an empty later page keeps the normal response shape
+        if not ld_results and page == 0:
             return [
                 TextContent(
                     type='text',

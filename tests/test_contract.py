@@ -13,9 +13,20 @@ import pytest
 from igvf_catalog_async_client import AsyncIgvfCatalogApi
 
 from igvf_catalog_mcp.services.api_client import method_params
-from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS
-from igvf_catalog_mcp.services.id_parser import ENTITY_MAX_LIMITS, ENTITY_METHODS, NAME_PARAMS, IDParser
-from igvf_catalog_mcp.tools.find_associations import EDGE_PARAM_ALIASES, RESOLVED_EDGE_PARAMS, build_query_params
+from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS, RELATIONSHIP_TYPE_MAPPING
+from igvf_catalog_mcp.services.id_parser import (
+    ENTITY_MAX_LIMITS,
+    ENTITY_METHODS,
+    NAME_LOOKUP_PARAMS,
+    NAME_PARAMS,
+    IDParser,
+)
+from igvf_catalog_mcp.tools.find_associations import (
+    EDGE_PARAM_ALIASES,
+    RESOLVED_EDGE_PARAMS,
+    build_query_params,
+    resolve_edge_param,
+)
 from igvf_catalog_mcp.tools.search_region import REGION_QUERY_METHODS
 
 PAGING_PARAMS = {'page', 'limit'}
@@ -64,9 +75,10 @@ def test_build_query_params_emits_accepted_kwargs(endpoint_key):
         if config.get(allowed_key):
             filters[filter_name] = config[allowed_key][0]
 
-    params = build_query_params('x', config['from_params'][0], config, filters, 25, True, 0)
+    params, not_applied = build_query_params('x', config['from_params'][0], config, filters, 25, True, 0)
 
     assert set(params) <= accepted
+    assert not set(config.get('filters', {})) & set(not_applied)
 
 
 def test_edge_param_aliases_are_used():
@@ -88,16 +100,35 @@ def test_name_lookup_params_match_client():
         assert param_name in method_params(method_name), f'{param_name} not accepted by {method_name}'
 
 
+def test_name_lookup_params_cover_every_name_lookup():
+    assert set(NAME_LOOKUP_PARAMS) == set(NAME_PARAMS)
+    for entity_type, param_names in NAME_LOOKUP_PARAMS.items():
+        assert NAME_PARAMS[entity_type] in param_names
+        method_name = IDParser.get_client_method(entity_type)
+        missing = set(param_names) - method_params(method_name)
+        assert not missing, f'{sorted(missing)} not accepted by {method_name}'
+
+
 def test_entity_max_limits_match_client():
     for entity_type, method_name in ENTITY_METHODS.items():
         assert ('limit' in method_params(method_name)) == (entity_type in ENTITY_MAX_LIMITS), method_name
 
 
 def test_resolved_edge_params_match_client():
-    for param_name, (edge_param, _) in RESOLVED_EDGE_PARAMS.items():
-        entity_type = next(entity_type for _, entity_type, name in IDParser.PATTERNS if name == param_name)
-        assert {param_name, 'limit', 'page'} <= method_params(IDParser.get_client_method(entity_type))
-        assert any(edge_param in config.get('from_params', []) for config in EDGE_ENDPOINTS.values())
+    for (entity_type, param_name), (resolved_param, _) in RESOLVED_EDGE_PARAMS.items():
+        assert {param_name, 'page'} <= method_params(IDParser.get_client_method(entity_type))
+        assert any(resolve_edge_param(resolved_param, config) for config in EDGE_ENDPOINTS.values())
+
+
+@pytest.mark.parametrize(
+    'entity_type', sorted({t for mapping in RELATIONSHIP_TYPE_MAPPING.values() for t in mapping} & set(NAME_PARAMS))
+)
+def test_names_resolve_to_a_parameter_of_every_endpoint(entity_type):
+    resolved_param, _ = RESOLVED_EDGE_PARAMS[(entity_type, 'name')]
+    for mapping in RELATIONSHIP_TYPE_MAPPING.values():
+        for endpoint_key in mapping.get(entity_type, []):
+            assert resolve_edge_param(resolved_param, EDGE_ENDPOINTS[endpoint_key]), endpoint_key
+            assert resolve_edge_param('name', EDGE_ENDPOINTS[endpoint_key]) is None, endpoint_key
 
 
 @pytest.mark.parametrize('method_name', sorted(set(REGION_QUERY_METHODS.values())))
@@ -121,11 +152,23 @@ def test_edge_enum_values_match_spec():
 
     for endpoint_key, config in EDGE_ENDPOINTS.items():
         spec_params = {p['name']: p.get('schema', {}) for p in spec['paths'][config['path']]['get']['parameters']}
+        accepted = method_params(config['client_method'])
         for filter_name, allowed_key in [('source', 'sources'), ('method', 'methods'), ('label', 'labels')]:
-            if filter_name in spec_params and allowed_key in config:
-                spec_values = set(spec_params[filter_name].get('enum', []))
-                unknown = set(config[allowed_key]) - spec_values
-                assert not unknown, f'{endpoint_key}.{allowed_key}: {sorted(unknown)} not in spec enum'
+            name = f'{endpoint_key}.{allowed_key}'
+            if filter_name not in accepted:
+                # Sources describe the endpoint's data even where they cannot be filtered on
+                assert filter_name == 'source' or allowed_key not in config, f'{name}: {filter_name} not accepted'
+            elif 'enum' in spec_params[filter_name]:
+                spec_values = spec_params[filter_name]['enum']
+                assert allowed_key in config, f'{name} missing; spec enum: {spec_values}'
+                assert len(config[allowed_key]) == len(set(config[allowed_key])), f'{name} has duplicates'
+                unknown = set(config[allowed_key]) - set(spec_values)
+                missing = set(spec_values) - set(config[allowed_key])
+                assert not unknown, f'{name}: {sorted(unknown)} not in spec enum'
+                assert not missing, f'{name}: spec enum values {sorted(missing)} missing'
+            else:
+                # Without an enum the value is passed through, so a list would reject valid values
+                assert allowed_key not in config, f'{name}: {filter_name} has no enum in the spec'
         for filter_name, kind in config.get('filters', {}).items():
             if kind == 'enum':
                 assert 'enum' in spec_params[filter_name], f'{endpoint_key}.{filter_name} is not an enum in the spec'

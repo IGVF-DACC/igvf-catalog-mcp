@@ -1,7 +1,8 @@
 """Entity ID parser with auto-detection of entity types."""
 
+import asyncio
 import re
-from typing import Literal
+from typing import Any, Literal, NamedTuple
 
 from .api_client import get_client
 
@@ -36,6 +37,9 @@ HINT_TYPES: dict[str, str] = {
     'disease': 'ontology',
 }
 
+# Display name of entity types in messages
+TYPE_LABELS: dict[str, str] = {'ontology': 'ontology term'}
+
 # Lookup parameter used when a hinted identifier is a name rather than an ID
 NAME_PARAMS: dict[str, str] = {
     'gene': 'name',
@@ -45,6 +49,33 @@ NAME_PARAMS: dict[str, str] = {
     'complex': 'name',
     'pathway': 'name',
 }
+
+# Record fields that a name must equal (case-insensitively) for an entity to match it exactly
+NAME_FIELDS: dict[str, list[str]] = {
+    'gene': ['name'],
+    'protein': ['name', 'uniprot_names', 'uniprot_full_names'],
+    'ontology': ['name', 'synonyms'],
+    'drug': ['name'],
+    'complex': ['name'],
+    'pathway': ['name'],
+}
+
+# Lookup parameters searched for name candidates: one per field of NAME_FIELDS that the API can search. Gene
+# symbols are only matched against the symbol, so genes are not searched by synonym.
+NAME_LOOKUP_PARAMS: dict[str, list[str]] = {
+    'gene': ['name'],
+    'protein': ['name', 'uniprot_name', 'uniprot_full_name'],
+    'ontology': ['name', 'synonyms'],
+    'drug': ['name'],
+    'complex': ['name'],
+    'pathway': ['name'],
+}
+
+# Record field holding each entity type's ID
+ID_FIELDS: dict[str, str] = {'ontology': 'term_id'}
+
+# Maximum number of near matches suggested when a name has no exact match
+MAX_SUGGESTIONS = 10
 
 # Maximum page size of each lookup method. The complexes and studies methods take no limit and return
 # API_PAGE_SIZE results per page.
@@ -61,11 +92,138 @@ ENTITY_MAX_LIMITS: dict[str, int] = {
 # Default page size of the IGVF Catalog API
 API_PAGE_SIZE = 25
 
-# Gene symbol format; some symbols (e.g. P2RY12, B3GAT1) are also valid UniProt accessions
-GENE_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
+# Gene symbol format: alphanumeric parts separated by hyphens (e.g. BRCA1, C1orf112, HLA-DRB1, ZNF33A-AS1), up to the
+# length of the catalog's longest symbols (readthrough genes such as ARHGAP27P1-BPTFP1-KPNA2P3)
+GENE_SYMBOL = r'^(?=.{2,25}$)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$'
+
+# Irregular gene symbols, which GENE_SYMBOL does not cover: letters and digits with -, _ or ., possibly starting with a
+# digit (e.g. C4B_2, Y_RNA, 5S_rRNA, 7SK, CTD-2194D22.4). Unknown accessions such as NM_000546 have the same form, so an
+# identifier matching only this pattern is a gene only if a gene with exactly that symbol exists.
+IRREGULAR_SYMBOL = r'^(?=.{2,25}$)(?=.*[A-Z])[A-Z0-9][A-Z0-9._-]*$'
+
+# Gene symbols that can also fit other ID patterns: some symbols (e.g. P2RY12, B3GAT1) are also valid UniProt
+# accessions, others (RS1, CA1) rsIDs or CA IDs. No catalog symbol with a hyphen or more than 10 characters fits one.
+ID_SHAPED_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
+
+# Prefixes of the ontology term IDs the catalog stores, in the catalog's case: the loaded ontologies and the terms they
+# import (collected from every page of /ontology-terms)
+ONTOLOGY_PREFIXES = [
+    'AfPO', 'BAO', 'BFO', 'BSPO', 'BTO', 'CARO', 'CHEBI', 'CHMO', 'CL', 'CLM', 'CLO', 'COB', 'CVCL', 'DDANAT',
+    'DHBA', 'DISDRIV', 'DOID', 'ECO', 'ECTO', 'EFO', 'ENVO', 'EO', 'ExO', 'FBbi', 'FBbt', 'FBdv', 'FMA', 'FOODON',
+    'GAZ', 'GENO', 'GO', 'GOREL', 'GSSO', 'HANCESTRO', 'HBA', 'HP', 'HsapDv', 'IAO', 'IDO', 'MA', 'MAXO', 'MBA',
+    'MF', 'MFOMD', 'MIM', 'MOD', 'MONDO', 'MOP', 'MP', 'MPATH', 'MRO', 'NBO', 'NCBITaxon', 'NCIT', 'NTR', 'OBA',
+    'OBI', 'OGMS', 'OMIABIS', 'OMIT', 'OMO', 'OMRSE', 'Oncotree', 'OPL', 'Orphanet', 'PATO', 'PCL', 'PCO', 'PO',
+    'PR', 'REO', 'RO', 'SIO', 'SLM', 'SO', 'STATO', 'SYMP', 'TO', 'TRANS', 'UBERON', 'UBPROP', 'UBREL', 'UO',
+    'UPHENO', 'VO', 'VariO', 'WBls', 'ZEA', 'ZFA',
+]
+
+# Canonical case of each ontology prefix, by lowercase prefix
+ONTOLOGY_PREFIX_CASE: dict[str, str] = {prefix.lower(): prefix for prefix in ONTOLOGY_PREFIXES}
+
+# Prefixes with stored term IDs shaped like a UniProt entry name whose species code is letters (e.g. Oncotree_ACC).
+# No other prefix has one, so HBA_HUMAN is a protein name rather than an HBA term ID.
+LETTER_SPECIES_PREFIXES = ['Oncotree']
+
+# Ontology term ID: a known prefix (in any case), _ or :, and a local ID of letters and digits, in parts joined by - or
+# _ (e.g. NCIT_C27153, Oncotree_ACC, Oncotree_HEAD_NECK, PR_A6H6A9-1), except UniProt entry names with a letter
+# species code under the other prefixes
+ONTOLOGY_TERM = (
+    rf"^(?!(?!(?:{'|'.join(LETTER_SPECIES_PREFIXES)})_)[A-Z0-9]{{1,10}}_[A-Z]{{1,5}}$)"
+    rf"({'|'.join(ONTOLOGY_PREFIXES)})[_:]([A-Z0-9]+(?:[-_][A-Z0-9]+)*)$"
+)
+
+# Change part of a genomic HGVS ID: a substitution, or a deletion, duplication, insertion or deletion-insertion
+GENOMIC_HGVS_CHANGE = r'(?:\d+[A-Z]>[A-Z]|\d+(?:_\d+)?(?:del|dup)|\d+_\d+ins[A-Z]+|\d+(?:_\d+)?delins[A-Z]+)'
 
 # UniProt accession format (https://www.uniprot.org/help/accession_numbers)
 UNIPROT_ACCESSION = r'(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})'
+
+
+class Identification(NamedTuple):
+    """An identifier's entity type, lookup parameter and normalized value."""
+
+    entity_type: EntityType
+    param_name: str
+    identifier: str
+    # Entities whose name equals the identifier, when it was looked up by name (gene symbols); otherwise None
+    matches: list[dict[str, Any]] | None = None
+    # Other entities the name lookup returned
+    near_matches: list[dict[str, Any]] | None = None
+
+
+def entity_id(entity: dict[str, Any], entity_type: str) -> Any:
+    """
+    Get the ID of an entity record.
+
+    Args:
+        entity: The entity record
+        entity_type: The type of entity
+
+    Returns:
+        The record's ID field (term_id for ontology terms, otherwise _id)
+    """
+    return entity.get(ID_FIELDS.get(entity_type, '_id'))
+
+
+def name_matches(entity: dict[str, Any], entity_type: str, name: str) -> bool:
+    """
+    Check whether an entity's name, or one of its other names, equals a name case-insensitively.
+
+    Args:
+        entity: The entity record
+        entity_type: The type of entity, which selects the fields compared (see NAME_FIELDS)
+        name: The name to compare
+
+    Returns:
+        Whether the entity matches the name exactly
+    """
+    target = name.strip().casefold()
+    for field in NAME_FIELDS.get(entity_type, ['name']):
+        value = entity.get(field)
+        for candidate in value if isinstance(value, list) else [value]:
+            if isinstance(candidate, str) and candidate.casefold() == target:
+                return True
+    return False
+
+
+def name_not_found(entity_type: str, name: str, near_matches: list[dict[str, Any]] | None = None) -> str:
+    """
+    Describe a name without exact matches, suggesting the entities the name search returned instead.
+
+    Args:
+        entity_type: The type of entity
+        name: The name looked up
+        near_matches: Entities the name search returned that do not match exactly
+
+    Returns:
+        Message such as "No gene found with symbol 'LIVER'. Did you mean: LIVAR?"
+    """
+    label = TYPE_LABELS.get(entity_type, entity_type)
+    message = f"No {label} found with {'symbol' if entity_type == 'gene' else 'name'} '{name}'"
+    suggestions: list[str] = []
+    for entity in near_matches or []:
+        suggestion = entity.get('name')
+        if entity_type != 'gene' and entity_id(entity, entity_type):
+            suggestion = f'{suggestion} ({entity_id(entity, entity_type)})'
+        if suggestion and suggestion not in suggestions:
+            suggestions.append(suggestion)
+    if suggestions:
+        more = ', …' if len(suggestions) > MAX_SUGGESTIONS else ''
+        message += f". Did you mean: {', '.join(suggestions[:MAX_SUGGESTIONS])}{more}?"
+    return message
+
+
+def with_article(noun: str) -> str:
+    """
+    Prefix a noun with its indefinite article.
+
+    Args:
+        noun: The noun, e.g. "ontology term"
+
+    Returns:
+        The noun with "a" or "an"
+    """
+    return f"{'an' if noun[:1] in 'aeiou' else 'a'} {noun}"
 
 
 class IDParser:
@@ -73,12 +231,12 @@ class IDParser:
 
     # Pattern definitions for entity type detection
     PATTERNS = [
-        # Genes
-        (r'^ENSG\d+(\.\d+)?$', 'gene', 'gene_id'),
+        # Genes, including the catalog's copies in the Y chromosome PAR (e.g. ENSG00000002586_PAR_Y)
+        (r'^ENSG\d+(\.\d+)?(_PAR_Y)?$', 'gene', 'gene_id'),
         (r'^HGNC:\d+$', 'gene', 'hgnc_id'),
         (r'^ENTREZ:\d+$', 'gene', 'entrez'),
         # Transcripts
-        (r'^ENST\d+(\.\d+)?$', 'transcript', 'transcript_id'),
+        (r'^ENST\d+(\.\d+)?(_PAR_Y)?$', 'transcript', 'transcript_id'),
         # Proteins
         (r'^ENSP\d+(\.\d+)?$', 'protein', 'protein_id'),
         # UniProt isoforms like P49711-2 are protein IDs; bare accessions are cross-references
@@ -86,19 +244,11 @@ class IDParser:
         (rf'^{UNIPROT_ACCESSION}$', 'protein', 'dbxrefs'),
         # Variants
         (r'^rs\d+$', 'variant', 'rsid'),
-        (r'^NC_\d+\.\d+:\d+:[A-Z]+:[A-Z]+$', 'variant', 'spdi'),
-        (r'^NC_\d+\.\d+:g\.\d+[A-Z]>[A-Z]$', 'variant', 'hgvs'),
+        (r'^NC_\d+\.\d+:\d+:[A-Z]*:[A-Z]*$', 'variant', 'spdi'),
+        (rf'^NC_\d+\.\d+:g\.{GENOMIC_HGVS_CHANGE}$', 'variant', 'hgvs'),
         (r'^CA\d+$', 'variant', 'ca_id'),
-        # Ontology terms
-        (r'^Orphanet[_:]\d+$', 'ontology', 'term_id'),
-        (r'^MONDO[_:]\d+$', 'ontology', 'term_id'),
-        (r'^EFO[_:]\d+$', 'ontology', 'term_id'),
-        (r'^GO[_:]\d+$', 'ontology', 'term_id'),
-        (r'^DOID[_:]\d+$', 'ontology', 'term_id'),
-        (r'^UBERON[_:]\d+$', 'ontology', 'term_id'),
-        (r'^CL[_:]\d+$', 'ontology', 'term_id'),
-        (r'^CHEBI[_:]\d+$', 'ontology', 'term_id'),
-        (r'^OBA[_:]\d+$', 'ontology', 'term_id'),
+        # Ontology terms (e.g. MONDO_0007915, HP:0033726, NCIT_C27153, Orphanet_586)
+        (ONTOLOGY_TERM, 'ontology', 'term_id'),
         # Drugs
         (r'^PA\d+$', 'drug', 'drug_id'),
         # Complexes
@@ -127,11 +277,13 @@ class IDParser:
             argument of the entity's lookup method (see get_client_method)
 
         Raises:
-            ValueError: If the identifier format is not recognized, or the hint is unknown or does not
-                fit the identifier
+            ValueError: If the identifier is blank or its format is not recognized, the hint is unknown, or the
+                identifier is an ID of a different type than the hint (strings shaped like gene symbols count as names)
         """
         # Normalize identifier
         identifier = identifier.strip()
+        if not identifier:
+            raise ValueError('The identifier is empty. Provide an ID or a name.')
 
         # A hint selects the entity type; identifiers that are not IDs of that type are looked up by name
         if hint:
@@ -139,8 +291,16 @@ class IDParser:
             if hinted_type is None:
                 raise ValueError(f"Unknown hint: '{hint}'. Valid hints: {', '.join(HINT_TYPES)}")
             for pattern, entity_type, param_name in cls.PATTERNS:
-                if entity_type == hinted_type and re.match(pattern, identifier, re.IGNORECASE):
+                if entity_type == hinted_type and param_name != 'name' and re.match(pattern, identifier, re.IGNORECASE):
                     return entity_type, param_name  # type: ignore
+            if not re.match(ID_SHAPED_SYMBOL, identifier, re.IGNORECASE):
+                for pattern, entity_type, param_name in cls.PATTERNS:
+                    if param_name != 'name' and re.match(pattern, identifier, re.IGNORECASE):
+                        expected = 'name' if hinted_type in NAME_PARAMS else 'ID'
+                        raise ValueError(
+                            f"'{identifier}' is {with_article(TYPE_LABELS.get(entity_type, entity_type))} ID, "
+                            f'not {with_article(hint.lower())} {expected}.'
+                        )
             if hinted_type in NAME_PARAMS:
                 return hinted_type, NAME_PARAMS[hinted_type]  # type: ignore
             raise ValueError(
@@ -155,36 +315,88 @@ class IDParser:
         raise ValueError(
             f'Could not detect entity type for identifier: {identifier}. '
             f'Supported formats include: ENSG* (genes), rs* (variants), ENSP* (proteins), '
-            f'NC_* (variants), Orphanet_*/MONDO_*/EFO_* (ontology terms), and gene symbols.'
+            f'NC_* (variants), ontology terms such as MONDO_0007915 or HP_0033726, and gene symbols.'
         )
 
     @classmethod
-    async def identify(cls, identifier: str, hint: str | None = None) -> tuple[EntityType, str, str]:
+    async def identify(cls, identifier: str, hint: str | None = None) -> Identification:
         """
         Detect the entity type of an identifier and normalize it for API queries.
 
-        Without a hint, an identifier that is both a UniProt accession and a gene symbol is a gene
-        if a gene with exactly that symbol exists, and a protein otherwise.
+        Gene symbols only match genes whose symbol equals them case-insensitively, so they are looked up
+        across all pages and the exact matches are returned, with the symbol in the catalog's case (e.g.
+        C1orf112). Without a hint, an identifier that fits both another ID pattern and ID_SHAPED_SYMBOL (e.g.
+        RS1, CA1 or P2RY12) is a gene if a gene with exactly that symbol exists, and so is one that fits no
+        pattern but IRREGULAR_SYMBOL (e.g. C4B_2 or 7SK). Each check costs one gene name lookup.
 
         Args:
             identifier: The ID string to parse
             hint: Optional hint about the entity type
 
         Returns:
-            Tuple of (entity_type, parameter_name, normalized_identifier)
+            The Identification, with the exact and near matches of a gene symbol
 
         Raises:
-            ValueError: As detect_entity_type
+            ValueError: As detect_entity_type, unless the identifier is an irregular gene symbol
         """
-        entity_type, param_name = cls.detect_entity_type(identifier, hint)
+        try:
+            entity_type, param_name = cls.detect_entity_type(identifier, hint)
+        except ValueError:
+            if hint or not re.match(IRREGULAR_SYMBOL, identifier.strip(), re.IGNORECASE):
+                raise
+            matches, near_matches = await cls.lookup_name('gene', identifier.strip().upper())
+            if not matches:
+                raise
+            return Identification('gene', 'name', matches[0].get('name'), matches, near_matches)
         normalized_id = cls.normalize_identifier(identifier, entity_type, param_name)
 
-        if hint is None and param_name == 'dbxrefs' and re.match(GENE_SYMBOL, normalized_id):
-            genes = await get_client().call(ENTITY_METHODS['gene'], name=normalized_id, page=0)
-            if any(gene.get('name') == normalized_id for gene in genes):
-                return 'gene', 'name', normalized_id
+        is_symbol = (entity_type, param_name) == ('gene', 'name')
+        ambiguous = hint is None and not is_symbol and re.match(ID_SHAPED_SYMBOL, identifier.strip(), re.IGNORECASE)
+        if is_symbol or ambiguous:
+            symbol = identifier.strip().upper()
+            matches, near_matches = await cls.lookup_name('gene', symbol)
+            if matches:
+                symbol = matches[0].get('name') or symbol
+            if is_symbol or matches:
+                return Identification('gene', 'name', symbol, matches, near_matches)
 
-        return entity_type, param_name, normalized_id
+        return Identification(entity_type, param_name, normalized_id)  # type: ignore
+
+    @classmethod
+    async def lookup_name(cls, entity_type: EntityType, name: str) -> tuple[list[dict], list[dict]]:
+        """
+        Look up entities by name across all pages, and split them into exact and near matches.
+
+        The name is searched with each lookup parameter of NAME_LOOKUP_PARAMS (e.g. name and synonyms for
+        ontology terms) concurrently, and the candidates are merged by ID. The catalog's searches are fuzzy
+        (e.g. LIVER finds LIVAR); only entities whose name, or another name field (see NAME_FIELDS), equals the
+        name case-insensitively match exactly.
+
+        Args:
+            entity_type: The type of entity, which must have a name lookup (see NAME_PARAMS)
+            name: The normalized name
+
+        Returns:
+            Tuple of (exact matches, other entities the searches returned)
+
+        Raises:
+            ValueError: If the name is blank, which the API would treat as no filter
+        """
+        if not name.strip():
+            raise ValueError('The name is empty. Provide a name to look up.')
+        results = await asyncio.gather(
+            *(cls.lookup_all(entity_type, param_name, name) for param_name in NAME_LOOKUP_PARAMS[entity_type])
+        )
+        entities: list[dict] = []
+        seen_ids = set()
+        for entity in (entity for result in results for entity in result):
+            key = entity_id(entity, entity_type)
+            if key is None or key not in seen_ids:
+                seen_ids.add(key)
+                entities.append(entity)
+        exact = [entity for entity in entities if name_matches(entity, entity_type, name)]
+        near = [entity for entity in entities if not name_matches(entity, entity_type, name)]
+        return exact, near
 
     @classmethod
     async def lookup_all(cls, entity_type: EntityType, param_name: str, identifier: str) -> list[dict]:
@@ -224,6 +436,8 @@ class IDParser:
         Normalize an identifier for API queries.
 
         IDs are matched case-insensitively, so they are converted to the case the catalog stores.
+        The catalog stores Ensembl gene and transcript IDs without a version, so it is removed
+        (ENSG00000141510.17 → ENSG00000141510, ENSG00000002586.20_PAR_Y → ENSG00000002586_PAR_Y).
         Names are passed through, except gene symbols, which are uppercase.
 
         Args:
@@ -235,6 +449,7 @@ class IDParser:
             Normalized identifier
         """
         identifier = identifier.strip()
+        original = identifier
 
         if param_name == 'name':
             if entity_type == 'gene':
@@ -245,10 +460,33 @@ class IDParser:
             return identifier.lower()
 
         identifier = identifier.upper()
+        if param_name in ['gene_id', 'transcript_id']:
+            identifier = re.sub(r'\.\d+', '', identifier)
         if param_name == 'hgvs':
-            identifier = identifier.replace(':G.', ':g.')
+            sequence, change = identifier.split(':G.', 1)
+            change = re.sub(r'DELINS|DEL|DUP|INS', lambda match: match.group().lower(), change)
+            identifier = f'{sequence}:g.{change}'
         if entity_type == 'ontology':
-            # Ontology term separators are stored as underscores
-            identifier = identifier.replace(':', '_').replace('ORPHANET_', 'Orphanet_')
+            return cls.normalize_term_id(original)
 
         return identifier
+
+    @classmethod
+    def normalize_term_id(cls, term_id: str) -> str:
+        """
+        Normalize an ontology term ID to the form the catalog stores.
+
+        Separators are stored as underscores, prefixes in their canonical case (e.g. NCBITaxon_, VariO_,
+        Orphanet_; see ONTOLOGY_PREFIXES) and local IDs in uppercase.
+
+        Args:
+            term_id: The stripped term ID
+
+        Returns:
+            Normalized term ID
+        """
+        match = re.match(ONTOLOGY_TERM, term_id, re.IGNORECASE)
+        if match is None:
+            return term_id.upper().replace(':', '_')
+        prefix, local_id = match.groups()
+        return f'{ONTOLOGY_PREFIX_CASE[prefix.lower()]}_{local_id.upper()}'

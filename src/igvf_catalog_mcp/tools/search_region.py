@@ -33,7 +33,12 @@ SEARCH_REGION_TOOL = Tool(
         'properties': {
             'region': {
                 'type': 'string',
-                'description': "Genomic region (e.g., 'chr1:1000000-2000000' or '1:1M-2M')",
+                'description': (
+                    "Genomic region (e.g., 'chr1:1000000-2000000' or '1:1M-2M') on chr1-chr22, chrX, chrY or chrM "
+                    'for Homo sapiens (GRCh38), or chr1-chr19, chrX, chrY or chrM for Mus musculus (GRCm39). '
+                    'Positions are 0-based and the end is exclusive. The start must be within the chromosome; '
+                    'an end beyond the end of the chromosome is clipped to it, with a note in the response'
+                ),
             },
             'include': {
                 'type': 'array',
@@ -84,14 +89,9 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
         page = arguments.get('page', 0)
 
         # Parse and validate the region
-        region = RegionParser.parse_region(region_str)
+        region = RegionParser.parse_region(region_str, organism)
 
-        # Warn if region is very large (> 10 Mb)
         region_size = region.end - region.start
-        if region_size > 10_000_000:
-            warning = f'Warning: Large region ({region_size:,} bp). Results may be incomplete.\n\n'
-        else:
-            warning = ''
 
         # Build queries for different entity types
         queries = {
@@ -119,12 +119,17 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
         response = {}
         for entity_type, result in zip(tasks.keys(), results):
             if isinstance(result, Exception):
-                response[entity_type] = {'error': str(result)}
+                response[entity_type] = {'error': format_error(result)}
             else:
                 response[entity_type] = {
                     '_pagination': build_pagination_metadata(result, page, limit),
                     'items': result,
                 }
+
+        failed = [entity_type for entity_type, value in response.items() if 'error' in value]
+        if failed and len(failed) == len(response):
+            errors = '; '.join(f"{entity_type}: {response[entity_type]['error']}" for entity_type in failed)
+            raise ToolError(f'Error searching region: {errors}')
 
         # Format response
         any_has_more = any(
@@ -148,8 +153,23 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
             'organism': organism,
             'results': response,
         }
+        if region_size > 10_000_000:
+            response_data['warning'] = f'Large region ({region_size:,} bp). Results may be incomplete.'
+        notes = []
+        if region.requested_end is not None:
+            notes.append(
+                f"The end position '{region.requested_end}' is beyond the end of {region.chromosome} "
+                f'({region.end:,} bp in {RegionParser.ASSEMBLIES[organism]}), so the region was clipped to {region}.'
+            )
+        if failed:
+            notes.append(
+                f"The query failed for {', '.join(failed)} (see the error in results), "
+                'so _pagination.has_more covers only the other entity types.'
+            )
+        if notes:
+            response_data['note'] = ' '.join(notes)
 
-        response_text = warning + json.dumps(response_data, indent=2)
+        response_text = json.dumps(response_data, indent=2)
 
         return [
             TextContent(
@@ -158,6 +178,8 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
             )
         ]
 
+    except ToolError:
+        raise
     except ValueError as e:
         # Region parsing errors
         raise ToolError(format_error(e)) from e

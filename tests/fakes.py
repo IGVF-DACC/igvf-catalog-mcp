@@ -24,11 +24,24 @@ class FakeCatalog:
     """Offline IGVF Catalog API: maps API paths (without /api) to JSON payloads and records requests."""
 
     def __init__(self):
-        self.responses: dict[str, tuple[Any, int]] = {}
+        self.responses: dict[str, list[tuple[dict[str, str], Any, int]]] = {}
         self.requests: list[tuple[str, dict[str, str]]] = []
 
-    def add(self, path: str, payload: Any, status: int = 200):
-        self.responses[path] = (payload, status)
+    def add(self, path: str, payload: Any, status: int = 200, params: dict[str, str] | None = None):
+        """
+        Respond to requests for path; with params, only to requests that include those query parameters.
+
+        An exception as payload is raised instead, e.g. TimeoutError() for a request that timed out.
+        """
+        self.responses.setdefault(path, []).insert(0, (params or {}, payload, status))
+
+    def response_for(self, path: str, params: dict[str, str]) -> tuple[Any, int]:
+        """The latest response added for path whose params match the most query parameters."""
+        matching = [response for response in self.responses.get(path, []) if response[0].items() <= params.items()]
+        if not matching:
+            return [], 200
+        _, payload, status = max(matching, key=lambda response: len(response[0]))
+        return payload, status
 
     def params_for(self, path: str) -> list[dict[str, str]]:
         return [params for request_path, params in self.requests if request_path == path]
@@ -39,6 +52,8 @@ class FakeCatalog:
         path = parsed.path.removeprefix('/api')
         params = dict(parse_qsl(parsed.query))
         self.requests.append((path, params))
-        payload, status = self.responses.get(path, ([], 200))
+        payload, status = self.response_for(path, params)
+        if isinstance(payload, Exception):
+            raise payload
         return RESTResponse(FakeResponse(payload, status=status, reason='OK' if status < 400 else 'Error'))
 
