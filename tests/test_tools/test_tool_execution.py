@@ -85,6 +85,46 @@ async def test_get_entity_hyphenated_gene_symbol(fake_catalog):
     assert [entity['_id'] for entity in data['entities']] == ['ENSG00000206503']
 
 
+@pytest.mark.parametrize('hint', [None, 'gene'])
+async def test_get_entity_par_y_gene_id(fake_catalog, hint):
+    gene = {'_id': 'ENSG00000002586_PAR_Y', 'name': 'CD99', 'chr': 'chrY'}
+    fake_catalog.add('/genes', [gene], params={'gene_id': 'ENSG00000002586_PAR_Y'})
+
+    data = response_json(
+        await call_tool('igvf_catalog_get_entity', {'id': 'ensg00000002586_par_y', **({'hint': hint} if hint else {})})
+    )
+
+    assert data['entity_type'] == 'gene'
+    assert data['entities'] == [{'_type': 'gene', **gene}]
+    assert fake_catalog.params_for('/genes') == [{'gene_id': 'ENSG00000002586_PAR_Y', 'page': '0', 'limit': '25'}]
+
+
+async def test_get_entity_par_y_transcript_id(fake_catalog):
+    transcript = {'_id': 'ENST00000611428_PAR_Y', 'name': 'CD99-210', 'chr': 'chrY'}
+    fake_catalog.add('/transcripts', [transcript])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'ENST00000611428_PAR_Y'}))
+
+    assert data['entity_type'] == 'transcript'
+    assert fake_catalog.params_for('/transcripts') == [
+        {'transcript_id': 'ENST00000611428_PAR_Y', 'page': '0', 'limit': '25'}
+    ]
+
+
+async def test_find_associations_par_y_gene_id(fake_catalog):
+    fake_catalog.add('/genes/transcripts', [{'gene': 'genes/ENSG00000002586_PAR_Y', 'transcript': 'transcripts/x'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'ENSG00000002586_PAR_Y', 'relationship': 'transcription'}
+        )
+    )
+
+    assert data['entity_id'] == 'ENSG00000002586_PAR_Y'
+    assert data['num_associations'] == 1
+    assert fake_catalog.params_for('/genes/transcripts')[0]['gene_id'] == 'ENSG00000002586_PAR_Y'
+
+
 @pytest.mark.parametrize(('identifier', 'path'), [('CPX-9', '/complexes'), ('R-HSA-164843', '/pathways')])
 async def test_get_entity_hyphenated_ids_do_not_look_up_genes(fake_catalog, identifier, path):
     fake_catalog.add(path, [{'_id': identifier, 'name': 'x'}])

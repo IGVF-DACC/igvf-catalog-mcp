@@ -323,6 +323,27 @@ async def test_identify_blank_identifier_makes_no_request(fake_catalog, hint):
     assert fake_catalog.requests == []
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('ENSG00000002586_PAR_Y', ('gene', 'gene_id', 'ENSG00000002586_PAR_Y')),
+        ('ensg00000002586_par_y', ('gene', 'gene_id', 'ENSG00000002586_PAR_Y')),
+        ('ENST00000611428_PAR_Y', ('transcript', 'transcript_id', 'ENST00000611428_PAR_Y')),
+        ('enst00000611428_Par_Y', ('transcript', 'transcript_id', 'ENST00000611428_PAR_Y')),
+    ],
+)
+def test_detect_par_y_ids(identifier, expected):
+    entity_type, param_name = IDParser.detect_entity_type(identifier)
+    assert (entity_type, param_name, IDParser.normalize_identifier(identifier, entity_type, param_name)) == expected
+
+
+def test_par_y_ids_are_not_gene_names():
+    assert IDParser.detect_entity_type('ENSG00000002586_PAR_Y', hint='gene') == ('gene', 'gene_id')
+    assert IDParser.detect_entity_type('ENST00000611428_PAR_Y', hint='transcript') == ('transcript', 'transcript_id')
+    with pytest.raises(ValueError, match="^'ENSG00000002586_PAR_Y' is a gene ID, not a protein name.$"):
+        IDParser.detect_entity_type('ENSG00000002586_PAR_Y', hint='protein')
+
+
 def test_unknown_hint():
     with pytest.raises(ValueError, match="Unknown hint: 'cell'"):
         IDParser.detect_entity_type('BRCA1', hint='cell')

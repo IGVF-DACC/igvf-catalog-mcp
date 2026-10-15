@@ -217,12 +217,12 @@ class IDParser:
 
     # Pattern definitions for entity type detection
     PATTERNS = [
-        # Genes
-        (r'^ENSG\d+(\.\d+)?$', 'gene', 'gene_id'),
+        # Genes, including the catalog's copies in the Y chromosome PAR (e.g. ENSG00000002586_PAR_Y)
+        (r'^ENSG\d+(\.\d+)?(_PAR_Y)?$', 'gene', 'gene_id'),
         (r'^HGNC:\d+$', 'gene', 'hgnc_id'),
         (r'^ENTREZ:\d+$', 'gene', 'entrez'),
         # Transcripts
-        (r'^ENST\d+(\.\d+)?$', 'transcript', 'transcript_id'),
+        (r'^ENST\d+(\.\d+)?(_PAR_Y)?$', 'transcript', 'transcript_id'),
         # Proteins
         (r'^ENSP\d+(\.\d+)?$', 'protein', 'protein_id'),
         # UniProt isoforms like P49711-2 are protein IDs; bare accessions are cross-references
