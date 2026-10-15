@@ -280,6 +280,8 @@ def test_hint_without_name_lookup_rejects_names():
         ('P49711-2', 'gene', "'P49711-2' is a protein ID, not a gene name."),
         ('Oncotree_ACC', 'gene', "'Oncotree_ACC' is an ontology term ID, not a gene name."),
         ('NCIT_C27153', 'protein', "'NCIT_C27153' is an ontology term ID, not a protein name."),
+        ('Oncotree_ACC', 'protein', "'Oncotree_ACC' is an ontology term ID, not a protein name."),
+        ('HBA_9HIV1', 'protein', "'HBA_9HIV1' is an ontology term ID, not a protein name."),
     ],
 )
 def test_hint_rejects_ids_of_other_types(identifier, hint, message):
@@ -302,11 +304,16 @@ def test_hint_accepts_symbol_shaped_ids_as_names(identifier, hint, expected):
     assert IDParser.detect_entity_type(identifier, hint=hint) == expected
 
 
-@pytest.mark.parametrize(
-    'identifier', ['HBA_HUMAN', 'hba_human', 'CTCF_HUMAN', 'P53_MOUSE', 'HBA_9HIV1', 'Oncotree_ACC']
-)
+@pytest.mark.parametrize('identifier', ['HBA_HUMAN', 'hba_human', 'CTCF_HUMAN', 'P53_MOUSE'])
 def test_protein_hint_accepts_uniprot_entry_names(identifier):
     assert IDParser.detect_entity_type(identifier, hint='protein') == ('protein', 'name')
+
+
+@pytest.mark.parametrize('identifier', ['Orphanet_586', 'CHEBI_10', 'NCIT_C1000', 'CVCL_0001'])
+def test_protein_hint_rejects_ontology_term_ids_with_short_local_ids(identifier):
+    with pytest.raises(ValueError) as error:
+        IDParser.detect_entity_type(identifier, hint='protein')
+    assert str(error.value) == f"'{identifier}' is an ontology term ID, not a protein name."
 
 
 @pytest.mark.parametrize('identifier', ['HBA_HUMAN', 'CTCF_HUMAN'])

@@ -120,9 +120,6 @@ ONTOLOGY_PREFIXES = [
 # Canonical case of each ontology prefix, by lowercase prefix
 ONTOLOGY_PREFIX_CASE: dict[str, str] = {prefix.lower(): prefix for prefix in ONTOLOGY_PREFIXES}
 
-# UniProt entry name format: a mnemonic of letters and digits, _ and a species code (e.g. HBA_HUMAN, P53_MOUSE)
-UNIPROT_NAME = r'^[A-Z0-9]{1,10}_[A-Z0-9]{1,5}$'
-
 # Prefixes with stored term IDs shaped like a UniProt entry name whose species code is letters (e.g. Oncotree_ACC).
 # No other prefix has one, so HBA_HUMAN is a protein name rather than an HBA term ID.
 LETTER_SPECIES_PREFIXES = ['Oncotree']
@@ -281,8 +278,7 @@ class IDParser:
 
         Raises:
             ValueError: If the identifier is blank or its format is not recognized, the hint is unknown, or the
-                identifier is an ID of a different type than the hint (strings shaped like gene symbols count as names,
-                and so do strings shaped like UniProt entry names under hint protein)
+                identifier is an ID of a different type than the hint (strings shaped like gene symbols count as names)
         """
         # Normalize identifier
         identifier = identifier.strip()
@@ -297,10 +293,7 @@ class IDParser:
             for pattern, entity_type, param_name in cls.PATTERNS:
                 if entity_type == hinted_type and param_name != 'name' and re.match(pattern, identifier, re.IGNORECASE):
                     return entity_type, param_name  # type: ignore
-            is_name = re.match(ID_SHAPED_SYMBOL, identifier, re.IGNORECASE) or (
-                hinted_type == 'protein' and re.match(UNIPROT_NAME, identifier, re.IGNORECASE)
-            )
-            if not is_name:
+            if not re.match(ID_SHAPED_SYMBOL, identifier, re.IGNORECASE):
                 for pattern, entity_type, param_name in cls.PATTERNS:
                     if param_name != 'name' and re.match(pattern, identifier, re.IGNORECASE):
                         expected = 'name' if hinted_type in NAME_PARAMS else 'ID'
