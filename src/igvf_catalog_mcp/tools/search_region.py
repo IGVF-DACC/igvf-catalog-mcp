@@ -35,7 +35,9 @@ SEARCH_REGION_TOOL = Tool(
                 'type': 'string',
                 'description': (
                     "Genomic region (e.g., 'chr1:1000000-2000000' or '1:1M-2M') on chr1-chr22, chrX, chrY or chrM "
-                    'for Homo sapiens, or chr1-chr19, chrX, chrY or chrM for Mus musculus'
+                    'for Homo sapiens (GRCh38), or chr1-chr19, chrX, chrY or chrM for Mus musculus (GRCm39). '
+                    'Positions are 0-based and the end is exclusive. The start must be within the chromosome; '
+                    'an end beyond the end of the chromosome is clipped to it, with a note in the response'
                 ),
             },
             'include': {
@@ -156,11 +158,19 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
             'organism': organism,
             'results': response,
         }
+        notes = []
+        if region.requested_end is not None:
+            notes.append(
+                f"The end position '{region.requested_end}' is beyond the end of {region.chromosome} "
+                f'({region.end:,} bp in {RegionParser.ASSEMBLIES[organism]}), so the region was clipped to {region}.'
+            )
         if failed:
-            response_data['note'] = (
+            notes.append(
                 f"The query failed for {', '.join(failed)} (see the error in results), "
                 'so _pagination.has_more covers only the other entity types.'
             )
+        if notes:
+            response_data['note'] = ' '.join(notes)
 
         response_text = warning + json.dumps(response_data, indent=2)
 

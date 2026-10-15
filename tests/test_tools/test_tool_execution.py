@@ -550,6 +550,86 @@ async def test_search_region_mouse_chromosome(fake_catalog):
     ]
 
 
+@pytest.mark.parametrize(
+    ('arguments', 'message'),
+    [
+        (
+            {'region': 'chr1:1G-2G'},
+            "Invalid region: start position '1G' is beyond the end of chr1 "
+            '(248,956,422 bp in GRCh38; the largest start position is 248956421)',
+        ),
+        (
+            {'region': 'chr1:248956422-248956423'},
+            "Invalid region: start position '248956422' is beyond the end of chr1 ",
+        ),
+        (
+            {'region': 'chr19:62M-63M', 'organism': 'Mus musculus'},
+            "Invalid region: start position '62M' is beyond the end of chr19 (61,420,004 bp in GRCm39; ",
+        ),
+    ],
+)
+async def test_search_region_start_beyond_chromosome_end_is_a_tool_error(fake_catalog, arguments, message):
+    result = await call_tool_request('igvf_catalog_search_region', arguments)
+
+    assert result.isError is True
+    assert result.content[0].text.startswith(f'ValueError: {message}')
+    assert fake_catalog.requests == []
+
+
+@pytest.mark.parametrize(
+    ('arguments', 'region', 'note'),
+    [
+        (
+            {'region': 'chr1:248,900,000-249,000,000', 'include': ['genes']},
+            'chr1:248900000-248956422',
+            "The end position '249,000,000' is beyond the end of chr1 (248,956,422 bp in GRCh38), "
+            'so the region was clipped to chr1:248900000-248956422.',
+        ),
+        (
+            {'region': 'chrM:1-20000', 'include': ['genes']},
+            'chrM:1-16569',
+            "The end position '20000' is beyond the end of chrM (16,569 bp in GRCh38), "
+            'so the region was clipped to chrM:1-16569.',
+        ),
+        (
+            {'region': 'chr19:61M-62M', 'organism': 'Mus musculus', 'include': ['genes']},
+            'chr19:61000000-61420004',
+            "The end position '62M' is beyond the end of chr19 (61,420,004 bp in GRCm39), "
+            'so the region was clipped to chr19:61000000-61420004.',
+        ),
+    ],
+)
+async def test_search_region_end_beyond_chromosome_end_is_clipped(fake_catalog, arguments, region, note):
+    data = response_json(await call_tool('igvf_catalog_search_region', arguments))
+
+    assert data['region'] == region
+    assert data['note'] == note
+    assert fake_catalog.params_for('/genes')[0]['region'] == region
+
+
+async def test_search_region_up_to_chromosome_end_has_no_note(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_search_region', {'region': 'chrM:1-16569'}))
+
+    assert data['region'] == 'chrM:1-16569'
+    assert 'note' not in data
+
+
+async def test_search_region_clipped_with_partial_failure(fake_catalog, sample_gene_data):
+    fake_catalog.add('/genes', [sample_gene_data])
+    fake_catalog.add('/variants', TimeoutError())
+
+    data = response_json(
+        await call_tool('igvf_catalog_search_region', {'region': 'chrM:1-20000', 'include': ['genes', 'variants']})
+    )
+
+    assert data['note'] == (
+        "The end position '20000' is beyond the end of chrM (16,569 bp in GRCh38), "
+        'so the region was clipped to chrM:1-16569. '
+        'The query failed for variants (see the error in results), '
+        'so _pagination.has_more covers only the other entity types.'
+    )
+
+
 # find_associations
 
 

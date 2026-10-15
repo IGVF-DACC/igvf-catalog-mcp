@@ -205,6 +205,113 @@ def test_invalid_format():
         RegionParser.parse_region('chr1-1000-2000')
 
 
+def test_chromosome_lengths_cover_every_chromosome():
+    """Test that every valid chromosome of each organism has a length and an assembly."""
+    assert {organism: set(lengths) for organism, lengths in RegionParser.CHROMOSOME_LENGTHS.items()} == (
+        RegionParser.VALID_CHROMOSOMES
+    )
+    assert set(RegionParser.ASSEMBLIES) == set(RegionParser.VALID_CHROMOSOMES)
+
+
+@pytest.mark.parametrize(
+    ('organism', 'chromosome', 'length'),
+    [
+        ('Homo sapiens', 'chr1', 248_956_422),
+        ('Homo sapiens', 'chr21', 46_709_983),
+        ('Homo sapiens', 'chrX', 156_040_895),
+        ('Homo sapiens', 'chrY', 57_227_415),
+        ('Homo sapiens', 'chrM', 16_569),
+        ('Mus musculus', 'chr1', 195_154_279),
+        ('Mus musculus', 'chr19', 61_420_004),
+        ('Mus musculus', 'chrX', 169_476_592),
+        ('Mus musculus', 'chrM', 16_299),
+    ],
+)
+def test_chromosome_lengths(organism, chromosome, length):
+    """Test chromosome lengths against GRCh38 and GRCm39."""
+    assert RegionParser.CHROMOSOME_LENGTHS[organism][chromosome] == length
+
+
+@pytest.mark.parametrize(
+    ('region', 'organism'),
+    [
+        ('chr1:1-248956422', 'Homo sapiens'),
+        ('chr1:248956421-248956422', 'Homo sapiens'),
+        ('chrM:1-16569', 'Homo sapiens'),
+        ('chrM:0-16569', 'Homo sapiens'),
+        ('chr19:1-61420004', 'Mus musculus'),
+        ('chrM:1-16299', 'Mus musculus'),
+    ],
+)
+def test_region_up_to_chromosome_end(region, organism):
+    """Test that a region ending at the end of the chromosome is not changed."""
+    parsed = RegionParser.parse_region(region, organism)
+    assert str(parsed) == region
+    assert parsed.requested_end is None
+
+
+@pytest.mark.parametrize(
+    ('region', 'organism', 'clipped', 'requested_end'),
+    [
+        ('chr1:248,900,000-249,000,000', 'Homo sapiens', 'chr1:248900000-248956422', '249,000,000'),
+        ('chr1:248956421-248956423', 'Homo sapiens', 'chr1:248956421-248956422', '248956423'),
+        ('chrM:1-20000', 'Homo sapiens', 'chrM:1-16569', '20000'),
+        ('chr19:1-62000000', 'Mus musculus', 'chr19:1-61420004', '62000000'),
+        ('chrM:1-16569', 'Mus musculus', 'chrM:1-16299', '16569'),
+        ('chr1:1M-2G', 'Homo sapiens', 'chr1:1000000-248956422', '2G'),
+        ('chr2:0-' + '9' * 40, 'Homo sapiens', 'chr2:0-242193529', '9' * 40),
+    ],
+)
+def test_end_beyond_chromosome_end_is_clipped(region, organism, clipped, requested_end):
+    """Test that an end beyond the end of the chromosome is clipped to the chromosome length."""
+    parsed = RegionParser.parse_region(region, organism)
+    assert str(parsed) == clipped
+    assert parsed.requested_end == requested_end
+
+
+@pytest.mark.parametrize(
+    ('region', 'organism', 'start', 'end'),
+    [
+        (
+            'chr1:1G-2G',
+            'Homo sapiens',
+            '1G',
+            'chr1 (248,956,422 bp in GRCh38; the largest start position is 248956421)',
+        ),
+        (
+            'chr1:248956422-248956423',
+            'Homo sapiens',
+            '248956422',
+            'chr1 (248,956,422 bp in GRCh38; the largest start position is 248956421)',
+        ),
+        (
+            'chrM:20000-30000',
+            'Homo sapiens',
+            '20000',
+            'chrM (16,569 bp in GRCh38; the largest start position is 16568)',
+        ),
+        (
+            'chr19:62M-63M',
+            'Mus musculus',
+            '62M',
+            'chr19 (61,420,004 bp in GRCm39; the largest start position is 61420003)',
+        ),
+        (
+            'chr1:123456789012345678901234567891-123456789012345678901234567892',
+            'Homo sapiens',
+            '123456789012345678901234567891',
+            'chr1 (248,956,422 bp in GRCh38; the largest start position is 248956421)',
+        ),
+        ('chr1:' + '9' * 5000 + '-1', 'Homo sapiens', '9' * 5000, 'chr1 (248,956,422 bp in GRCh38;'),
+    ],
+)
+def test_start_beyond_chromosome_end(region, organism, start, end):
+    """Test that a start beyond the end of the chromosome raises ValueError."""
+    message = rf"^Invalid region: start position '{start}' is beyond the end of {re.escape(end)}"
+    with pytest.raises(ValueError, match=message):
+        RegionParser.parse_region(region, organism)
+
+
 def test_start_greater_than_end():
     """Test that start > end raises ValueError."""
     with pytest.raises(ValueError, match='start position.*must be less than end'):
