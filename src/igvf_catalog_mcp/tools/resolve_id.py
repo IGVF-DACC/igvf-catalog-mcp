@@ -1,6 +1,7 @@
 """Resolve ID tool - convert between identifier formats."""
 
 import json
+import re
 from typing import Any
 
 from mcp.types import TextContent, Tool
@@ -62,6 +63,24 @@ def most_frequent_allele(variants: list[dict[str, Any]]) -> dict[str, Any] | Non
     return max(with_af, key=gnomad_af) if with_af else None
 
 
+def on_primary_assembly(gene: dict[str, Any]) -> bool:
+    """
+    Check whether a gene is on a primary chromosome, rather than an alternate haplotype or the Y PAR copy.
+
+    Args:
+        gene: The gene record
+
+    Returns:
+        Whether the gene is on chr1-22, X, Y or M and is not a _PAR_Y copy
+    """
+    chromosome = gene.get('chr')
+    return (
+        isinstance(chromosome, str)
+        and re.match(r'^chr([0-9]+|X|Y|M)$', chromosome) is not None
+        and not str(gene.get('_id', '')).endswith('_PAR_Y')
+    )
+
+
 def uniprot_accession(protein: dict[str, Any]) -> str | None:
     """
     Get a protein's UniProtKB accession.
@@ -120,6 +139,8 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
             entity = most_frequent_allele(entities) or entities[0]
         elif entity_type == 'protein':
             entity = next((protein for protein in entities if protein.get('MANE_Select')), entities[0])
+        elif entity_type == 'gene':
+            entity = next((gene for gene in entities if on_primary_assembly(gene)), entities[0])
         else:
             entity = entities[0]
 
@@ -168,6 +189,26 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
                 'start': entity.get('start'),
                 'end': entity.get('end'),
             }
+            identifiers['genes'] = [
+                {
+                    'gene_id': gene.get('_id'),
+                    'name': gene.get('name'),
+                    'chromosome': gene.get('chr'),
+                    'start': gene.get('start'),
+                    'end': gene.get('end'),
+                }
+                for gene in entities
+            ]
+            if len(entities) > 1:
+                described = (
+                    f"the gene on the primary assembly ({entity.get('_id')})"
+                    if on_primary_assembly(entity)
+                    else 'the first one, as none is on the primary assembly'
+                )
+                identifiers['note'] = (
+                    f'{entity_id} matches {len(entities)} genes (e.g. copies on alternate haplotypes or the Y '
+                    f'chromosome PAR), listed in genes. The top-level identifiers describe {described}.'
+                )
         elif entity_type == 'protein':
             # Protein identifiers
             dbxrefs = entity.get('dbxrefs') or []

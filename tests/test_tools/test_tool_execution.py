@@ -1108,7 +1108,51 @@ async def test_resolve_id_gene(fake_catalog, sample_gene_data):
 
     assert data['identifiers']['gene_id'] == 'ENSG00000139618'
     assert data['identifiers']['synonyms'] == ['FANCD1', 'BRCC2']
+    assert [gene['gene_id'] for gene in data['genes']] == ['ENSG00000139618']
+    assert 'note' not in data
     assert fake_catalog.params_for('/genes') == [{'hgnc_id': 'HGNC:1101', 'page': '0'}]
+
+
+async def test_resolve_id_gene_lists_genes_sharing_a_symbol(fake_catalog):
+    par_y = {'_id': 'ENSG00000002586_PAR_Y', 'name': 'CD99', 'chr': 'chrY', 'start': 2691186, 'end': 2741309}
+    chr_x = {'_id': 'ENSG00000002586', 'name': 'CD99', 'chr': 'chrX', 'start': 2691132, 'end': 2741309}
+    fake_catalog.add('/genes', [par_y, chr_x])
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'cd99'}))
+
+    assert data['identifiers']['gene_id'] == 'ENSG00000002586'
+    assert data['identifiers']['chromosome'] == 'chrX'
+    assert data['genes'] == [
+        {'gene_id': 'ENSG00000002586_PAR_Y', 'name': 'CD99', 'chromosome': 'chrY', 'start': 2691186, 'end': 2741309},
+        {'gene_id': 'ENSG00000002586', 'name': 'CD99', 'chromosome': 'chrX', 'start': 2691132, 'end': 2741309},
+    ]
+    assert data['note'] == (
+        'cd99 matches 2 genes (e.g. copies on alternate haplotypes or the Y chromosome PAR), listed in genes. '
+        'The top-level identifiers describe the gene on the primary assembly (ENSG00000002586).'
+    )
+
+
+async def test_resolve_id_gene_prefers_primary_chromosome_over_alt_haplotype(fake_catalog):
+    genes = [
+        {'_id': 'ENSG00000206240', 'name': 'HLA-DRB1', 'chr': 'chr6_GL000251v2_alt'},
+        {'_id': 'ENSG00000196126', 'name': 'HLA-DRB1', 'chr': 'chr6'},
+    ]
+    fake_catalog.add('/genes', genes)
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'HLA-DRB1'}))
+
+    assert data['identifiers']['gene_id'] == 'ENSG00000196126'
+    assert [gene['gene_id'] for gene in data['genes']] == ['ENSG00000206240', 'ENSG00000196126']
+
+
+async def test_resolve_id_gene_without_primary_chromosome(fake_catalog):
+    genes = [{'_id': f'ENSG0000020624{i}', 'name': 'HLA-X', 'chr': f'chr6_GL00025{i}v2_alt'} for i in range(2)]
+    fake_catalog.add('/genes', genes)
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'HLA-X'}))
+
+    assert data['identifiers']['gene_id'] == 'ENSG00000206240'
+    assert data['note'].endswith('describe the first one, as none is on the primary assembly.')
 
 
 async def test_resolve_id_hyphenated_gene_symbol(fake_catalog):
