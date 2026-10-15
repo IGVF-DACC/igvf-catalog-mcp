@@ -6,7 +6,7 @@ import pytest
 from mcp import types
 
 from igvf_catalog_mcp.server import app, call_tool
-from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS
+from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS, RELATIONSHIP_TYPE_MAPPING
 from igvf_catalog_mcp.services.formatter import ToolError
 
 BRCA1 = {'_id': 'ENSG00000012048', 'name': 'BRCA1'}
@@ -1393,6 +1393,80 @@ async def test_find_associations_unsupported_identifier_is_not_a_failure(fake_ca
     )
 
     assert data['note'].startswith('The query failed for genes_variants (see the error in query_metadata), ')
+
+
+@pytest.mark.parametrize(
+    ('entity_id', 'entity_type'), [('R-HSA-164843', 'pathway'), ('GCST005752', 'study')]
+)
+async def test_find_associations_all_for_entity_type_without_relationships(fake_catalog, entity_id, entity_type):
+    with pytest.raises(ToolError, match=f'^No relationships are available for {entity_type} entities.$'):
+        await call_tool('igvf_catalog_find_associations', {'entity_id': entity_id, 'relationship': 'all'})
+
+    assert all(path == '/genes' for path, _ in fake_catalog.requests)
+
+
+# An identifier of every (entity type, lookup parameter) that find_associations accepts, with its hint
+IDENTIFIERS_BY_TYPE = [
+    ('gene', 'ENSG00000012048', None),
+    ('gene', 'HGNC:1100', None),
+    ('gene', 'ENTREZ:672', None),
+    ('gene', 'BRCA1', None),
+    ('transcript', 'ENST00000264010', None),
+    ('protein', 'ENSP00000264010', None),
+    ('protein', 'P49711-2', None),
+    ('protein', 'P49711', None),
+    ('protein', 'CTCF', 'protein'),
+    ('variant', 'rs738409', None),
+    ('variant', 'NC_000022.11:43928846:C:G', None),
+    ('variant', 'NC_000022.11:g.43928847C>G', None),
+    ('variant', 'CA12345', None),
+    ('ontology', 'MONDO_0007915', None),
+    ('ontology', 'lupus', 'disease'),
+    ('drug', 'PA448497', None),
+    ('drug', 'Warfarin', 'drug'),
+    ('complex', 'CPX-1', None),
+    ('complex', 'Mediator', 'complex'),
+    ('study', 'GCST005752', None),
+    ('pathway', 'R-HSA-164843', None),
+]
+
+# Identifiers that no edge endpoint accepts
+UNQUERYABLE_IDENTIFIERS = ['ENTREZ:672']
+
+
+@pytest.mark.parametrize('relationship', [*RELATIONSHIP_TYPE_MAPPING, 'all'])
+@pytest.mark.parametrize(('entity_type', 'entity_id', 'hint'), IDENTIFIERS_BY_TYPE)
+async def test_find_associations_queries_endpoints_or_fails(fake_catalog, entity_type, entity_id, hint, relationship):
+    fake_catalog.add('/genes', [BRCA1], params={'name': 'BRCA1'})
+    fake_catalog.add('/variants', [{'_id': 'NC_000022.11:43928846:C:G', 'spdi': 'NC_000022.11:43928846:C:G'}])
+    fake_catalog.add('/proteins', [{'_id': 'ENSP00000264010', 'name': 'CTCF', 'uniprot_names': ['CTCF_HUMAN']}])
+    fake_catalog.add('/ontology-terms', [{'term_id': 'MONDO_0004670', 'name': 'lupus'}])
+    fake_catalog.add('/drugs', [{'_id': 'PA451906', 'name': 'warfarin'}])
+    fake_catalog.add('/complexes', [{'_id': 'CPX-3227', 'name': 'Mediator'}])
+    arguments = {'entity_id': entity_id, 'relationship': relationship, **({'hint': hint} if hint else {})}
+    if relationship == 'all':
+        applicable = any(entity_type in entity_map for entity_map in RELATIONSHIP_TYPE_MAPPING.values())
+    else:
+        applicable = entity_type in RELATIONSHIP_TYPE_MAPPING[relationship]
+
+    if not applicable or entity_id in UNQUERYABLE_IDENTIFIERS:
+        with pytest.raises(ToolError):
+            await call_tool('igvf_catalog_find_associations', arguments)
+        return
+
+    data = response_json(await call_tool('igvf_catalog_find_associations', arguments))
+
+    assert data['entity_type'] == entity_type
+    queried = [m for m in data['query_metadata'] if 'error' not in m]
+    assert queried
+    assert all(m['params_used'] and 'note' not in m for m in queried)
+
+
+def test_every_relationship_endpoint_is_configured():
+    for entity_map in RELATIONSHIP_TYPE_MAPPING.values():
+        for endpoint_keys in entity_map.values():
+            assert endpoint_keys
+            assert all(endpoint_key in EDGE_ENDPOINTS for endpoint_key in endpoint_keys)
 
 
 async def test_find_associations_unknown_relationship(fake_catalog):

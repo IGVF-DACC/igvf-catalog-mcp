@@ -345,6 +345,9 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             for rel_type, entity_map in RELATIONSHIP_TYPE_MAPPING.items():
                 if entity_type in entity_map:
                     endpoint_keys.extend(entity_map[entity_type])
+
+            if not endpoint_keys:
+                raise ToolError(f'No relationships are available for {entity_type} entities.')
         else:
             # Get endpoints for specific relationship type
             endpoint_keys = get_endpoints_for_entity_and_relationship(
