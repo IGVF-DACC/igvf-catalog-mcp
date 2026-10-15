@@ -33,7 +33,10 @@ SEARCH_REGION_TOOL = Tool(
         'properties': {
             'region': {
                 'type': 'string',
-                'description': "Genomic region (e.g., 'chr1:1000000-2000000' or '1:1M-2M')",
+                'description': (
+                    "Genomic region (e.g., 'chr1:1000000-2000000' or '1:1M-2M') on chr1-chr22, chrX, chrY or chrM "
+                    'for Homo sapiens, or chr1-chr19, chrX, chrY or chrM for Mus musculus'
+                ),
             },
             'include': {
                 'type': 'array',
@@ -84,7 +87,7 @@ async def search_region(arguments: dict[str, Any]) -> list[TextContent]:
         page = arguments.get('page', 0)
 
         # Parse and validate the region
-        region = RegionParser.parse_region(region_str)
+        region = RegionParser.parse_region(region_str, organism)
 
         # Warn if region is very large (> 10 Mb)
         region_size = region.end - region.start

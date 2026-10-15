@@ -77,6 +77,42 @@ def test_parse_chrm():
     assert region.chromosome == 'chrM'
 
 
+@pytest.mark.parametrize('region', ['chr23:1-500', 'chr0:1000-2000', '99:1M-2M', 'chr01:1000-2000'])
+def test_invalid_human_chromosome(region):
+    """Test that chromosomes the human genome does not have raise ValueError."""
+    with pytest.raises(ValueError, match=r"^Invalid chromosome 'chr\d+' for Homo sapiens\. "
+                       r'Valid: chr1-chr22, chrX, chrY, chrM$'):
+        RegionParser.parse_region(region)
+
+
+def test_invalid_mouse_chromosome():
+    """Test that human-only autosomes are invalid for mouse."""
+    with pytest.raises(ValueError, match=r"^Invalid chromosome 'chr22' for Mus musculus\. "
+                       r'Valid: chr1-chr19, chrX, chrY, chrM$'):
+        RegionParser.parse_region('chr22:1M-2M', 'Mus musculus')
+
+
+@pytest.mark.parametrize(
+    ('region', 'organism', 'chromosome'),
+    [
+        ('chr22:1000-2000', 'Homo sapiens', 'chr22'),
+        ('chr19:1M-1.1M', 'Mus musculus', 'chr19'),
+        ('CHRx:1000-2000', 'Mus musculus', 'chrX'),
+        ('y:1000-2000', 'Mus musculus', 'chrY'),
+        ('m:1-1000', 'Homo sapiens', 'chrM'),
+    ],
+)
+def test_valid_chromosome_per_organism(region, organism, chromosome):
+    """Test that each organism's chromosomes are accepted in any form and case."""
+    assert RegionParser.parse_region(region, organism).chromosome == chromosome
+
+
+def test_unknown_organism():
+    """Test that an organism without a chromosome set raises ValueError."""
+    with pytest.raises(ValueError, match="Unknown organism: 'Danio rerio'"):
+        RegionParser.parse_region('chr1:1000-2000', 'Danio rerio')
+
+
 def test_invalid_format():
     """Test that invalid formats raise ValueError."""
     with pytest.raises(ValueError, match='Invalid region format'):

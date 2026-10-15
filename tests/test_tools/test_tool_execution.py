@@ -484,6 +484,40 @@ async def test_search_region_every_entity_type_failed(fake_catalog):
     assert 'HTTP response headers' not in message
 
 
+@pytest.mark.parametrize(
+    ('arguments', 'message'),
+    [
+        ({'region': 'chr23:1-500'}, "Invalid chromosome 'chr23' for Homo sapiens. Valid: chr1-chr22, chrX, chrY, chrM"),
+        ({'region': 'chr0:1000-2000'}, "Invalid chromosome 'chr0' for Homo sapiens."),
+        ({'region': '99:1M-2M'}, "Invalid chromosome 'chr99' for Homo sapiens."),
+        (
+            {'region': 'chr22:1M-2M', 'organism': 'Mus musculus'},
+            "Invalid chromosome 'chr22' for Mus musculus. Valid: chr1-chr19, chrX, chrY, chrM",
+        ),
+    ],
+)
+async def test_search_region_invalid_chromosome_is_a_tool_error(fake_catalog, arguments, message):
+    result = await call_tool_request('igvf_catalog_search_region', arguments)
+
+    assert result.isError is True
+    assert result.content[0].text.startswith(f'ValueError: {message}')
+    assert fake_catalog.requests == []
+
+
+async def test_search_region_mouse_chromosome(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_search_region',
+            {'region': 'chr19:1M-1.1M', 'organism': 'Mus musculus', 'include': ['genes']},
+        )
+    )
+
+    assert data['region'] == 'chr19:1000000-1100000'
+    assert fake_catalog.params_for('/genes') == [
+        {'region': 'chr19:1000000-1100000', 'organism': 'Mus musculus', 'limit': '25', 'page': '0'}
+    ]
+
+
 # find_associations
 
 

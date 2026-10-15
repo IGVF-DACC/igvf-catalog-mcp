@@ -19,18 +19,17 @@ class GenomicRegion(NamedTuple):
 class RegionParser:
     """Parse and normalize genomic region formats."""
 
-    # Valid chromosome names
+    # Number of autosomes per organism; each organism also has chrX, chrY and chrM
+    AUTOSOMES = {'Homo sapiens': 22, 'Mus musculus': 19}
+
+    # Valid normalized chromosome names per organism
     VALID_CHROMOSOMES = {
-        'chr1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6', 'chr7', 'chr8', 'chr9', 'chr10',
-        'chr11', 'chr12', 'chr13', 'chr14', 'chr15', 'chr16', 'chr17', 'chr18', 'chr19', 'chr20',
-        'chr21', 'chr22', 'chrX', 'chrx', 'chrY', 'chry', 'chrM', 'chrm',
-        '1', '2', '3', '4', '5', '6', '7', '8', '9', '10',
-        '11', '12', '13', '14', '15', '16', '17', '18', '19', '20',
-        '21', '22', 'X', 'x', 'Y', 'y', 'M', 'm',
+        organism: {f'chr{number}' for number in range(1, count + 1)} | {'chrX', 'chrY', 'chrM'}
+        for organism, count in AUTOSOMES.items()
     }
 
     @classmethod
-    def parse_region(cls, region: str) -> GenomicRegion:
+    def parse_region(cls, region: str, organism: str = 'Homo sapiens') -> GenomicRegion:
         """
         Parse a genomic region string into structured components.
 
@@ -43,12 +42,13 @@ class RegionParser:
 
         Args:
             region: Region string to parse
+            organism: Organism whose chromosomes are valid ('Homo sapiens' or 'Mus musculus')
 
         Returns:
             GenomicRegion with normalized chromosome, start, and end
 
         Raises:
-            ValueError: If region format is invalid
+            ValueError: If region format is invalid or the chromosome does not exist in the organism
         """
         # Remove whitespace
         region = region.strip()
@@ -69,6 +69,7 @@ class RegionParser:
         # Normalize chromosome name
         chromosome = cls._normalize_chromosome(
             chr_name, chr_prefix is not None)
+        cls._validate_chromosome(chromosome, organism)
 
         # Parse positions with support for notations
         start = cls._parse_position(start_str)
@@ -110,6 +111,28 @@ class RegionParser:
             return f'chr{chr_name}'
 
         return f'chr{chr_name}'
+
+    @classmethod
+    def _validate_chromosome(cls, chromosome: str, organism: str) -> None:
+        """
+        Check that a normalized chromosome name exists in an organism.
+
+        Args:
+            chromosome: Normalized chromosome name (e.g., 'chr1', 'chrX')
+            organism: Organism name
+
+        Raises:
+            ValueError: If the organism is unknown or does not have the chromosome
+        """
+        if organism not in cls.VALID_CHROMOSOMES:
+            raise ValueError(
+                f"Unknown organism: '{organism}'. Valid: {', '.join(cls.VALID_CHROMOSOMES)}")
+
+        if chromosome not in cls.VALID_CHROMOSOMES[organism]:
+            raise ValueError(
+                f"Invalid chromosome '{chromosome}' for {organism}. "
+                f'Valid: chr1-chr{cls.AUTOSOMES[organism]}, chrX, chrY, chrM'
+            )
 
     @classmethod
     def _parse_position(cls, position_str: str) -> int:
