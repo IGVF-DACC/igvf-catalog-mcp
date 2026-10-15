@@ -134,6 +134,18 @@ async def test_get_entity_generic_ontology_term(fake_catalog):
     assert fake_catalog.params_for('/ontology-terms') == [{'term_id': 'HP_0033726', 'page': '0', 'limit': '25'}]
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'term_id'), [('ncbitaxon_9606', 'NCBITaxon_9606'), ('vario_0001', 'VariO_0001')]
+)
+async def test_get_entity_mixed_case_ontology_prefix(fake_catalog, identifier, term_id):
+    fake_catalog.add('/ontology-terms', [{'term_id': term_id, 'name': 'x'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': identifier}))
+
+    assert data['entity_type'] == 'ontology'
+    assert fake_catalog.params_for('/ontology-terms') == [{'term_id': term_id, 'page': '0', 'limit': '25'}]
+
+
 async def test_get_entity_uniprot_accession_uses_dbxrefs(fake_catalog):
     fake_catalog.add('/proteins', [{'_id': 'ENSP00000494538', 'names': ['CTCF_HUMAN']}])
 
@@ -1237,6 +1249,9 @@ async def call_tool_request(name, arguments):
             'not applicable to ontology entities',
         ),
         ('igvf_catalog_get_entity', {'id': '???'}, 'Could not detect entity type'),
+        ('igvf_catalog_get_entity', {'id': 'NM_000546'}, 'Could not detect entity type'),
+        ('igvf_catalog_find_associations', {'entity_id': 'NM_000546', 'relationship': 'genetic'},
+         'Could not detect entity type'),
         ('igvf_catalog_resolve_id', {'id': '???'}, 'Could not detect entity type'),
         ('igvf_catalog_find_ld', {'variant_id': 'BRCA1'}, 'Expected a variant ID'),
         ('igvf_catalog_list_sources', {'endpoint': 'nope'}, 'Unknown endpoint: nope'),

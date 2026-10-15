@@ -100,8 +100,23 @@ GENE_SYMBOL = r'^(?=.{2,25}$)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$'
 # accessions, others (RS1, CA1) rsIDs or CA IDs. No catalog symbol with a hyphen or more than 10 characters fits one.
 ID_SHAPED_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
 
-# Generic ontology term ID: a prefix of letters, _ or :, and a local ID containing a digit (e.g. NCIT_C27153)
-ONTOLOGY_TERM = r'^([A-Z]+)[_:]([A-Z0-9]*\d[A-Z0-9]*)$'
+# Prefixes of the ontology term IDs the catalog stores, in the catalog's case: the loaded ontologies and the terms they
+# import (collected from every page of /ontology-terms)
+ONTOLOGY_PREFIXES = [
+    'AfPO', 'BAO', 'BFO', 'BSPO', 'BTO', 'CARO', 'CHEBI', 'CHMO', 'CL', 'CLM', 'CLO', 'COB', 'CVCL', 'DDANAT', 'DHBA',
+    'DISDRIV', 'DOID', 'ECO', 'ECTO', 'EFO', 'ENVO', 'EO', 'ExO', 'FBbi', 'FBbt', 'FBdv', 'FMA', 'FOODON', 'GAZ',
+    'GENO', 'GO', 'GOREL', 'GSSO', 'HANCESTRO', 'HBA', 'HP', 'HsapDv', 'IAO', 'IDO', 'MA', 'MAXO', 'MBA', 'MF',
+    'MFOMD', 'MIM', 'MOD', 'MONDO', 'MOP', 'MP', 'MPATH', 'MRO', 'NBO', 'NCBITaxon', 'NCIT', 'NTR', 'OBA', 'OBI',
+    'OGMS', 'OMIABIS', 'OMIT', 'OMO', 'OMRSE', 'OPL', 'Orphanet', 'PATO', 'PCL', 'PCO', 'PO', 'PR', 'REO', 'RO', 'SIO',
+    'SLM', 'SO', 'STATO', 'SYMP', 'TO', 'TRANS', 'UBERON', 'UBPROP', 'UBREL', 'UO', 'UPHENO', 'VO', 'VariO', 'WBls',
+    'ZEA', 'ZFA',
+]
+
+# Canonical case of each ontology prefix, by lowercase prefix
+ONTOLOGY_PREFIX_CASE: dict[str, str] = {prefix.lower(): prefix for prefix in ONTOLOGY_PREFIXES}
+
+# Ontology term ID: a known prefix (in any case), _ or :, and a local ID containing a digit (e.g. NCIT_C27153)
+ONTOLOGY_TERM = rf"^({'|'.join(ONTOLOGY_PREFIXES)})[_:]([A-Z0-9]*\d[A-Z0-9]*)$"
 
 # Change part of a genomic HGVS ID: a substitution, or a deletion, duplication, insertion or deletion-insertion
 GENOMIC_HGVS_CHANGE = r'(?:\d+[A-Z]>[A-Z]|\d+(?:_\d+)?(?:del|dup)|\d+_\d+ins[A-Z]+|\d+(?:_\d+)?delins[A-Z]+)'
@@ -218,16 +233,8 @@ class IDParser:
         (r'^NC_\d+\.\d+:\d+:[A-Z]*:[A-Z]*$', 'variant', 'spdi'),
         (rf'^NC_\d+\.\d+:g\.{GENOMIC_HGVS_CHANGE}$', 'variant', 'hgvs'),
         (r'^CA\d+$', 'variant', 'ca_id'),
-        # Ontology terms
-        (r'^Orphanet[_:]\d+$', 'ontology', 'term_id'),
-        (r'^MONDO[_:]\d+$', 'ontology', 'term_id'),
-        (r'^EFO[_:]\d+$', 'ontology', 'term_id'),
-        (r'^GO[_:]\d+$', 'ontology', 'term_id'),
-        (r'^DOID[_:]\d+$', 'ontology', 'term_id'),
-        (r'^UBERON[_:]\d+$', 'ontology', 'term_id'),
-        (r'^CL[_:]\d+$', 'ontology', 'term_id'),
-        (r'^CHEBI[_:]\d+$', 'ontology', 'term_id'),
-        (r'^OBA[_:]\d+$', 'ontology', 'term_id'),
+        # Ontology terms (e.g. MONDO_0007915, HP:0033726, NCIT_C27153, Orphanet_586)
+        (ONTOLOGY_TERM, 'ontology', 'term_id'),
         # Drugs
         (r'^PA\d+$', 'drug', 'drug_id'),
         # Complexes
@@ -236,8 +243,6 @@ class IDParser:
         (r'^GCST\d+$', 'study', 'study_id'),
         # Pathways
         (r'^R-[A-Z]{3}-\d+$', 'pathway', 'id'),
-        # Other ontology terms (e.g. HP_0033726, NCIT_C27153); after the specific patterns, which use : and - too
-        (ONTOLOGY_TERM, 'ontology', 'term_id'),
         # Gene symbols (must be last, as it's most ambiguous)
         (GENE_SYMBOL, 'gene', 'name'),
     ]
@@ -438,8 +443,8 @@ class IDParser:
         """
         Normalize an ontology term ID to the form the catalog stores.
 
-        Separators are stored as underscores and IDs are uppercase, except mixed-case prefixes such as
-        Orphanet_ or VariO_. A mixed-case prefix is kept as typed; Orphanet is recognised in any case.
+        Separators are stored as underscores, prefixes in their canonical case (e.g. NCBITaxon_, VariO_,
+        Orphanet_; see ONTOLOGY_PREFIXES) and local IDs in uppercase.
 
         Args:
             term_id: The stripped term ID
@@ -451,8 +456,4 @@ class IDParser:
         if match is None:
             return term_id.upper().replace(':', '_')
         prefix, local_id = match.groups()
-        if prefix.upper() == 'ORPHANET':
-            prefix = 'Orphanet'
-        elif prefix.islower() or prefix.isupper():
-            prefix = prefix.upper()
-        return f'{prefix}_{local_id.upper()}'
+        return f'{ONTOLOGY_PREFIX_CASE[prefix.lower()]}_{local_id.upper()}'

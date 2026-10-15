@@ -2,7 +2,13 @@
 
 import pytest
 
-from igvf_catalog_mcp.services.id_parser import IDParser, name_matches, name_not_found
+from igvf_catalog_mcp.services.id_parser import (
+    ONTOLOGY_PREFIX_CASE,
+    ONTOLOGY_PREFIXES,
+    IDParser,
+    name_matches,
+    name_not_found,
+)
 
 
 def test_detect_gene_ensembl():
@@ -139,7 +145,17 @@ def test_detect_ontology_mondo():
         ('PR_000001', 'PR_000001'),
         ('EFO:0002690', 'EFO_0002690'),
         ('VariO_0001', 'VariO_0001'),
+        ('vario_0001', 'VariO_0001'),
+        ('VARIO:0001', 'VariO_0001'),
+        ('ncbitaxon_9606', 'NCBITaxon_9606'),
+        ('NCBITAXON:9606', 'NCBITaxon_9606'),
+        ('hp_0033726', 'HP_0033726'),
         ('Orphanet:586', 'Orphanet_586'),
+        ('orphanet:586', 'Orphanet_586'),
+        ('afpo_0000056', 'AfPO_0000056'),
+        ('hsapdv_0000227', 'HsapDv_0000227'),
+        ('cvcl_e829', 'CVCL_E829'),
+        ('mondo:0007915', 'MONDO_0007915'),
     ],
 )
 def test_generic_ontology_term_ids(identifier, expected):
@@ -161,6 +177,19 @@ def test_generic_ontology_term_ids(identifier, expected):
 )
 def test_generic_ontology_pattern_keeps_specific_patterns(identifier, expected):
     assert IDParser.detect_entity_type(identifier) == expected
+
+
+@pytest.mark.parametrize('identifier', ['NM_000546', 'NP_000537', 'chrX:1000', 'XYZ_0001', 'chr1:1000', 'NC_000017'])
+def test_unknown_prefixes_are_not_ontology_term_ids(identifier):
+    with pytest.raises(ValueError, match='Could not detect entity type'):
+        IDParser.detect_entity_type(identifier)
+
+
+def test_ontology_prefix_table_is_consistent():
+    assert len(ONTOLOGY_PREFIX_CASE) == len(ONTOLOGY_PREFIXES)
+    assert {'MONDO', 'EFO', 'GO', 'DOID', 'UBERON', 'CL', 'CHEBI', 'OBA', 'HP', 'NCIT', 'Orphanet', 'VariO'} <= set(
+        ONTOLOGY_PREFIXES
+    )
 
 
 def test_disease_hint_treats_ontology_id_as_term_id():
