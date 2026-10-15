@@ -8,7 +8,7 @@ from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client
 from ..services.formatter import ToolError, format_error
-from ..services.id_parser import IDParser, name_not_found
+from ..services.id_parser import TYPE_LABELS, IDParser, name_not_found
 
 # Tool definition
 RESOLVE_ID_TOOL = Tool(
@@ -131,7 +131,7 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
             return [
                 TextContent(
                     type='text',
-                    text=f"No {entity_type} found with {param_name}='{normalized_id}'",
+                    text=f"No {TYPE_LABELS.get(entity_type, entity_type)} found with {param_name}='{normalized_id}'",
                 )
             ]
 

@@ -146,6 +146,14 @@ async def test_get_entity_mixed_case_ontology_prefix(fake_catalog, identifier, t
     assert fake_catalog.params_for('/ontology-terms') == [{'term_id': term_id, 'page': '0', 'limit': '25'}]
 
 
+async def test_not_found_ontology_term_wording(fake_catalog):
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'MONDO_0000000'})
+    assert result[0].text == "No ontology term found with term_id='MONDO_0000000'"
+
+    result = await call_tool('igvf_catalog_resolve_id', {'id': 'MONDO_0000000'})
+    assert result[0].text == "No ontology term found with term_id='MONDO_0000000'"
+
+
 async def test_get_entity_uniprot_accession_uses_dbxrefs(fake_catalog):
     fake_catalog.add('/proteins', [{'_id': 'ENSP00000494538', 'names': ['CTCF_HUMAN']}])
 

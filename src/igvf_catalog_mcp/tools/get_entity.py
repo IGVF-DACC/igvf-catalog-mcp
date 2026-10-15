@@ -7,7 +7,7 @@ from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client, method_params
 from ..services.formatter import ToolError, add_entity_type, build_pagination_metadata, format_error
-from ..services.id_parser import API_PAGE_SIZE, ENTITY_MAX_LIMITS, IDParser, name_not_found
+from ..services.id_parser import API_PAGE_SIZE, ENTITY_MAX_LIMITS, TYPE_LABELS, IDParser, name_not_found
 
 # Tool definition
 GET_ENTITY_TOOL = Tool(
@@ -106,7 +106,7 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
             return [
                 TextContent(
                     type='text',
-                    text=f"No {entity_type} found with {param_name}='{normalized_id}'",
+                    text=f"No {TYPE_LABELS.get(entity_type, entity_type)} found with {param_name}='{normalized_id}'",
                 )
             ]
 
