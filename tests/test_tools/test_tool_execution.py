@@ -572,7 +572,7 @@ async def test_find_associations_variant_regulatory_filters(fake_catalog):
     assert fake_catalog.params_for('/variants/genes') == [
         {
             'rsid': 'rs58542926',
-            'neg_log10_pvalue': 'gte:1.30',
+            'neg_log10_pvalue': 'gte:1.3010299956639813',
             'biological_context': 'liver',
             'method': 'eQTL',
             'source': 'EBI',

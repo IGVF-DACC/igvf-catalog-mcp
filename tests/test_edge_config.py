@@ -13,7 +13,7 @@ from igvf_catalog_mcp.services.edge_config import (
     get_sources_by_category,
     supports_verbose,
 )
-from igvf_catalog_mcp.tools.find_associations import build_query_params, neg_log10_minimum
+from igvf_catalog_mcp.tools.find_associations import build_query_params
 
 
 def test_all_endpoints_have_required_fields():
@@ -368,10 +368,10 @@ def test_number_is_an_exact_value_of_other_range_filters():
 
 @pytest.mark.parametrize(
     ('p_value', 'minimum'),
-    [(0.05, 'gte:1.30'), (0.01, 'gte:2.00'), (5e-8, 'gte:7.30'), (1e-5, 'gte:5.00'), (0.0002, 'gte:3.69'),
-     (0.29, 'gte:0.53'), (2.5e-6, 'gte:5.60'), (1e-300, 'gte:300.00')],
+    [(0.05, 'gte:1.3010299956639813'), (0.01, 'gte:2.0'), (5e-8, 'gte:7.301029995663981'), (1e-5, 'gte:5.0'),
+     (0.0002, 'gte:3.6989700043360187'), (2.5e-6, 'gte:5.6020599913279625'), (1e-300, 'gte:300.0')],
 )
-def test_p_value_is_sent_as_neg_log10_rounded_down(p_value, minimum):
+def test_p_value_is_sent_as_neg_log10_at_full_precision(p_value, minimum):
     params, not_applied = build_query_params(
         'ENSG1', 'gene_id', EDGE_ENDPOINTS['genes_variants'], {'p_value': p_value}, 25, False
     )
@@ -380,10 +380,27 @@ def test_p_value_is_sent_as_neg_log10_rounded_down(p_value, minimum):
     assert not not_applied
 
 
-def test_p_value_minimum_never_excludes_a_row_within_the_maximum():
-    for exponent in range(1, 13):
-        for mantissa in range(100, 1000):
-            p_value = mantissa / 100 * 10 ** -exponent
-            neg_log10 = -math.log10(p_value)
-            minimum = float(neg_log10_minimum(p_value))
-            assert minimum <= neg_log10 < minimum + 0.01, p_value
+def p_value_samples():
+    return [mantissa / 100 * 10**-exponent for exponent in range(1, 300, 7) for mantissa in range(100, 1000, 3)]
+
+
+def neg_log10_minimum(p_value):
+    config = EDGE_ENDPOINTS['genes_variants']
+    params, _ = build_query_params('ENSG1', 'gene_id', config, {'p_value': p_value}, 25, False)
+    operator, value = params['neg_log10_pvalue'].split(':')
+    assert operator == 'gte'
+    return float(value)
+
+
+def test_p_value_minimum_round_trips_to_the_p_value():
+    for p_value in p_value_samples():
+        minimum = neg_log10_minimum(p_value)
+        assert minimum == -math.log10(p_value), p_value
+        assert math.isclose(10**-minimum, p_value, rel_tol=1e-12), p_value
+
+
+def test_p_value_minimum_admits_exactly_the_rows_within_the_maximum():
+    for p_value in p_value_samples():
+        minimum = neg_log10_minimum(p_value)
+        for row_p_value in [p_value * (1 - 1e-9), p_value, p_value * (1 + 1e-9)]:
+            assert (-math.log10(row_p_value) >= minimum) == (row_p_value <= p_value), (p_value, row_p_value)
