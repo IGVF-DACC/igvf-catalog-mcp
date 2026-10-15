@@ -154,6 +154,19 @@ async def test_find_associations_par_y_gene_id(fake_catalog):
     assert fake_catalog.params_for('/genes/transcripts')[0]['gene_id'] == 'ENSG00000002586_PAR_Y'
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'expected'), [('Oncotree_AMLNPM1', 'Oncotree_AMLNPM1'), ('oncotree_acc', 'Oncotree_ACC')]
+)
+async def test_get_entity_oncotree_term(fake_catalog, identifier, expected):
+    fake_catalog.add('/ontology-terms', [{'term_id': expected, 'name': 'x', 'source': 'Oncotree'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': identifier}))
+
+    assert data['entity_type'] == 'ontology'
+    assert fake_catalog.params_for('/ontology-terms') == [{'term_id': expected, 'page': '0', 'limit': '25'}]
+    assert fake_catalog.params_for('/genes') == []
+
+
 @pytest.mark.parametrize(('identifier', 'path'), [('CPX-9', '/complexes'), ('R-HSA-164843', '/pathways')])
 async def test_get_entity_hyphenated_ids_do_not_look_up_genes(fake_catalog, identifier, path):
     fake_catalog.add(path, [{'_id': identifier, 'name': 'x'}])
@@ -990,6 +1003,24 @@ async def test_find_associations_ontology_term(fake_catalog):
     assert fake_catalog.params_for('/diseases/genes') == [{'disease_id': 'EFO_0004611', 'page': '0', 'limit': '25'}]
 
 
+async def test_find_associations_oncotree_term_with_disease_hint(fake_catalog):
+    fake_catalog.add('/phenotypes/variants', [{'variant': 'variants/x'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'oncotree_acc', 'relationship': 'genetic', 'hint': 'disease'},
+        )
+    )
+
+    assert data['entity_id'] == 'Oncotree_ACC'
+    assert 'resolved_entities' not in data
+    assert fake_catalog.params_for('/phenotypes/variants') == [
+        {'phenotype_id': 'Oncotree_ACC', 'page': '0', 'limit': '25'}
+    ]
+    assert fake_catalog.params_for('/ontology-terms') == []
+
+
 async def test_find_associations_limit_is_per_endpoint_and_paginates(fake_catalog):
     fake_catalog.add('/genes/genes', [{'i': i} for i in range(3)])
     fake_catalog.add('/genes/pathways', [{'i': i} for i in range(3)])
@@ -1253,6 +1284,18 @@ async def test_resolve_id_ontology_term(fake_catalog):
         'term_id': 'MONDO_0009861', 'name': 'phenylketonuria', 'synonyms': ['PKU'], 'source': 'MONDO'
     }
     assert fake_catalog.params_for('/ontology-terms') == [{'term_id': 'MONDO_0009861', 'page': '0'}]
+
+
+@pytest.mark.parametrize('identifier', ['Oncotree_ACC', 'oncotree_acc'])
+async def test_resolve_id_oncotree_term(fake_catalog, identifier):
+    term = {'term_id': 'Oncotree_ACC', 'name': 'Adrenocortical Carcinoma', 'source': 'Oncotree'}
+    fake_catalog.add('/ontology-terms', [term])
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': identifier}))
+
+    assert data['entity_type'] == 'ontology'
+    assert data['identifiers']['term_id'] == 'Oncotree_ACC'
+    assert fake_catalog.params_for('/ontology-terms') == [{'term_id': 'Oncotree_ACC', 'page': '0'}]
 
 
 async def test_resolve_id_uniprot_accession(fake_catalog):

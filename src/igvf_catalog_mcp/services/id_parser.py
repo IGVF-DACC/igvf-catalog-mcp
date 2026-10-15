@@ -103,20 +103,21 @@ ID_SHAPED_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
 # Prefixes of the ontology term IDs the catalog stores, in the catalog's case: the loaded ontologies and the terms they
 # import (collected from every page of /ontology-terms)
 ONTOLOGY_PREFIXES = [
-    'AfPO', 'BAO', 'BFO', 'BSPO', 'BTO', 'CARO', 'CHEBI', 'CHMO', 'CL', 'CLM', 'CLO', 'COB', 'CVCL', 'DDANAT', 'DHBA',
-    'DISDRIV', 'DOID', 'ECO', 'ECTO', 'EFO', 'ENVO', 'EO', 'ExO', 'FBbi', 'FBbt', 'FBdv', 'FMA', 'FOODON', 'GAZ',
-    'GENO', 'GO', 'GOREL', 'GSSO', 'HANCESTRO', 'HBA', 'HP', 'HsapDv', 'IAO', 'IDO', 'MA', 'MAXO', 'MBA', 'MF',
-    'MFOMD', 'MIM', 'MOD', 'MONDO', 'MOP', 'MP', 'MPATH', 'MRO', 'NBO', 'NCBITaxon', 'NCIT', 'NTR', 'OBA', 'OBI',
-    'OGMS', 'OMIABIS', 'OMIT', 'OMO', 'OMRSE', 'OPL', 'Orphanet', 'PATO', 'PCL', 'PCO', 'PO', 'PR', 'REO', 'RO', 'SIO',
-    'SLM', 'SO', 'STATO', 'SYMP', 'TO', 'TRANS', 'UBERON', 'UBPROP', 'UBREL', 'UO', 'UPHENO', 'VO', 'VariO', 'WBls',
-    'ZEA', 'ZFA',
+    'AfPO', 'BAO', 'BFO', 'BSPO', 'BTO', 'CARO', 'CHEBI', 'CHMO', 'CL', 'CLM', 'CLO', 'COB', 'CVCL', 'DDANAT',
+    'DHBA', 'DISDRIV', 'DOID', 'ECO', 'ECTO', 'EFO', 'ENVO', 'EO', 'ExO', 'FBbi', 'FBbt', 'FBdv', 'FMA', 'FOODON',
+    'GAZ', 'GENO', 'GO', 'GOREL', 'GSSO', 'HANCESTRO', 'HBA', 'HP', 'HsapDv', 'IAO', 'IDO', 'MA', 'MAXO', 'MBA',
+    'MF', 'MFOMD', 'MIM', 'MOD', 'MONDO', 'MOP', 'MP', 'MPATH', 'MRO', 'NBO', 'NCBITaxon', 'NCIT', 'NTR', 'OBA',
+    'OBI', 'OGMS', 'OMIABIS', 'OMIT', 'OMO', 'OMRSE', 'Oncotree', 'OPL', 'Orphanet', 'PATO', 'PCL', 'PCO', 'PO',
+    'PR', 'REO', 'RO', 'SIO', 'SLM', 'SO', 'STATO', 'SYMP', 'TO', 'TRANS', 'UBERON', 'UBPROP', 'UBREL', 'UO',
+    'UPHENO', 'VO', 'VariO', 'WBls', 'ZEA', 'ZFA',
 ]
 
 # Canonical case of each ontology prefix, by lowercase prefix
 ONTOLOGY_PREFIX_CASE: dict[str, str] = {prefix.lower(): prefix for prefix in ONTOLOGY_PREFIXES}
 
-# Ontology term ID: a known prefix (in any case), _ or :, and a local ID containing a digit (e.g. NCIT_C27153)
-ONTOLOGY_TERM = rf"^({'|'.join(ONTOLOGY_PREFIXES)})[_:]([A-Z0-9]*\d[A-Z0-9]*)$"
+# Ontology term ID: a known prefix (in any case), _ or :, and a local ID of letters and digits, in parts joined by - or
+# _ (e.g. NCIT_C27153, Oncotree_ACC, Oncotree_HEAD_NECK, PR_A6H6A9-1)
+ONTOLOGY_TERM = rf"^({'|'.join(ONTOLOGY_PREFIXES)})[_:]([A-Z0-9]+(?:[-_][A-Z0-9]+)*)$"
 
 # Change part of a genomic HGVS ID: a substitution, or a deletion, duplication, insertion or deletion-insertion
 GENOMIC_HGVS_CHANGE = r'(?:\d+[A-Z]>[A-Z]|\d+(?:_\d+)?(?:del|dup)|\d+_\d+ins[A-Z]+|\d+(?:_\d+)?delins[A-Z]+)'

@@ -156,6 +156,13 @@ def test_detect_ontology_mondo():
         ('hsapdv_0000227', 'HsapDv_0000227'),
         ('cvcl_e829', 'CVCL_E829'),
         ('mondo:0007915', 'MONDO_0007915'),
+        ('Oncotree_ACC', 'Oncotree_ACC'),
+        ('oncotree_acc', 'Oncotree_ACC'),
+        ('ONCOTREE:AMLNPM1', 'Oncotree_AMLNPM1'),
+        ('oncotree_head_neck', 'Oncotree_HEAD_NECK'),
+        ('Oncotree_hcl-v', 'Oncotree_HCL-V'),
+        ('pr_a6h6a9-1', 'PR_A6H6A9-1'),
+        ('MBA_ENTITY', 'MBA_ENTITY'),
     ],
 )
 def test_generic_ontology_term_ids(identifier, expected):
@@ -179,7 +186,11 @@ def test_generic_ontology_pattern_keeps_specific_patterns(identifier, expected):
     assert IDParser.detect_entity_type(identifier) == expected
 
 
-@pytest.mark.parametrize('identifier', ['NM_000546', 'NP_000537', 'chrX:1000', 'XYZ_0001', 'chr1:1000', 'NC_000017'])
+@pytest.mark.parametrize(
+    'identifier',
+    ['NM_000546', 'NP_000537', 'chrX:1000', 'XYZ_0001', 'chr1:1000', 'NC_000017', 'Oncotree_', 'Oncotree_A__B',
+     'Oncotree_-A', 'Oncotree_A-', 'type_two', 'CHR_9606-chr1', 'lipidmaps:LMPK12010207'],
+)
 def test_unknown_prefixes_are_not_ontology_term_ids(identifier):
     with pytest.raises(ValueError, match='Could not detect entity type'):
         IDParser.detect_entity_type(identifier)
@@ -187,13 +198,18 @@ def test_unknown_prefixes_are_not_ontology_term_ids(identifier):
 
 def test_ontology_prefix_table_is_consistent():
     assert len(ONTOLOGY_PREFIX_CASE) == len(ONTOLOGY_PREFIXES)
-    assert {'MONDO', 'EFO', 'GO', 'DOID', 'UBERON', 'CL', 'CHEBI', 'OBA', 'HP', 'NCIT', 'Orphanet', 'VariO'} <= set(
-        ONTOLOGY_PREFIXES
-    )
+    assert {
+        'MONDO', 'EFO', 'GO', 'DOID', 'UBERON', 'CL', 'CHEBI', 'OBA', 'HP', 'NCIT', 'Orphanet', 'VariO', 'Oncotree'
+    } <= set(ONTOLOGY_PREFIXES)
 
 
-def test_disease_hint_treats_ontology_id_as_term_id():
-    assert IDParser.detect_entity_type('NCIT_C27153', hint='disease') == ('ontology', 'term_id')
+@pytest.mark.parametrize('identifier', ['NCIT_C27153', 'Oncotree_ACC', 'oncotree_acc'])
+def test_disease_hint_treats_ontology_id_as_term_id(identifier):
+    assert IDParser.detect_entity_type(identifier, hint='disease') == ('ontology', 'term_id')
+
+
+def test_disease_hint_keeps_names_with_underscores():
+    assert IDParser.detect_entity_type('type_two', hint='disease') == ('ontology', 'name')
 
 
 def test_detect_drug():
