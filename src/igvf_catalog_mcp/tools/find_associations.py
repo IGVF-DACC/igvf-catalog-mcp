@@ -3,6 +3,7 @@
 import json
 import math
 import re
+from decimal import ROUND_FLOOR, Decimal
 from typing import Any
 
 from mcp.types import TextContent, Tool
@@ -91,7 +92,13 @@ FIND_ASSOCIATIONS_TOOL = Tool(
                     'list_sources); query_metadata lists the filters_not_applied to each endpoint, with the reason.'
                 ),
                 'properties': {
-                    'p_value': {'type': 'number', 'description': 'Maximum p-value threshold'},
+                    'p_value': {
+                        'type': 'number',
+                        'description': (
+                            'Maximum p-value threshold (sent as neg_log10_pvalue gte:<-log10(p_value) rounded down to '
+                            '2 decimals>)'
+                        ),
+                    },
                     'source': {
                         'type': 'string',
                         'description': "Data source (e.g., 'AFGR', 'EBI', 'IGVF'); list_sources lists the valid values",
@@ -221,6 +228,21 @@ def parse_number(value: Any) -> int | float | None:
     return None
 
 
+def neg_log10_minimum(p_value: int | float) -> Decimal:
+    """
+    Convert a maximum p-value to the minimum -log10(p-value), rounded down to 2 decimals.
+
+    Rounding down keeps every row whose p-value is at most the maximum.
+
+    Args:
+        p_value: The maximum p-value, greater than 0
+
+    Returns:
+        The minimum -log10(p-value)
+    """
+    return Decimal(repr(-math.log10(p_value))).quantize(Decimal('0.01'), rounding=ROUND_FLOOR)
+
+
 def build_query_params(
     entity_id: str,
     param_name: str,
@@ -271,7 +293,7 @@ def build_query_params(
             elif not isinstance(filter_value, (int, float)) or filter_value <= 0:
                 not_applied[filter_name] = 'invalid value; must be a number greater than 0'
             else:
-                params['neg_log10_pvalue'] = f'gte:{-math.log10(filter_value):.2f}'
+                params['neg_log10_pvalue'] = f'gte:{neg_log10_minimum(filter_value)}'
             continue
 
         if filter_name in VALUE_LIST_FILTERS:

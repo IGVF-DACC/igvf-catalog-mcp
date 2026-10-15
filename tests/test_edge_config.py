@@ -1,5 +1,8 @@
 """Tests for edge configuration system."""
 
+import math
+
+import pytest
 
 from igvf_catalog_mcp.services.edge_config import (
     EDGE_ENDPOINTS,
@@ -10,7 +13,7 @@ from igvf_catalog_mcp.services.edge_config import (
     get_sources_by_category,
     supports_verbose,
 )
-from igvf_catalog_mcp.tools.find_associations import build_query_params
+from igvf_catalog_mcp.tools.find_associations import build_query_params, neg_log10_minimum
 
 
 def test_all_endpoints_have_required_fields():
@@ -361,3 +364,26 @@ def test_number_is_an_exact_value_of_other_range_filters():
 
     assert (params['effect_size'], params['neg_log10_pvalue']) == ('2', 'gte:5')
     assert not not_applied
+
+
+@pytest.mark.parametrize(
+    ('p_value', 'minimum'),
+    [(0.05, 'gte:1.30'), (0.01, 'gte:2.00'), (5e-8, 'gte:7.30'), (1e-5, 'gte:5.00'), (0.0002, 'gte:3.69'),
+     (0.29, 'gte:0.53'), (2.5e-6, 'gte:5.60'), (1e-300, 'gte:300.00')],
+)
+def test_p_value_is_sent_as_neg_log10_rounded_down(p_value, minimum):
+    params, not_applied = build_query_params(
+        'ENSG1', 'gene_id', EDGE_ENDPOINTS['genes_variants'], {'p_value': p_value}, 25, False
+    )
+
+    assert params['neg_log10_pvalue'] == minimum
+    assert not not_applied
+
+
+def test_p_value_minimum_never_excludes_a_row_within_the_maximum():
+    for exponent in range(1, 13):
+        for mantissa in range(100, 1000):
+            p_value = mantissa / 100 * 10 ** -exponent
+            neg_log10 = -math.log10(p_value)
+            minimum = float(neg_log10_minimum(p_value))
+            assert minimum <= neg_log10 < minimum + 0.01, p_value
