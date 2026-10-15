@@ -82,6 +82,99 @@ def on_primary_assembly(gene: dict[str, Any]) -> bool:
     )
 
 
+# Where a gene can be, in the order genes_on describes them, with the singular and plural phrase for each
+GENE_LOCATIONS = [
+    ('primary', 'on the primary assembly', 'on the primary assembly'),
+    ('par_y', 'Y chromosome PAR copy', 'Y chromosome PAR copies'),
+    ('alt', 'on an alternate haplotype', 'on alternate haplotypes'),
+    ('fix', 'on a fix patch', 'on fix patches'),
+    ('scaffold', 'on an unlocalized or unplaced scaffold', 'on unlocalized or unplaced scaffolds'),
+    ('other', 'on another sequence', 'on other sequences'),
+]
+
+
+def gene_location(gene: dict[str, Any]) -> str:
+    """
+    Classify where a gene is.
+
+    Args:
+        gene: The gene record
+
+    Returns:
+        A key of GENE_LOCATIONS: primary, par_y, alt (alternate haplotype), fix (fix patch), scaffold (unlocalized
+        or unplaced scaffold) or other
+    """
+    chromosome = str(gene.get('chr') or '')
+    if on_primary_assembly(gene):
+        return 'primary'
+    if str(gene.get('_id', '')).endswith('_PAR_Y'):
+        return 'par_y'
+    if chromosome.endswith('_alt'):
+        return 'alt'
+    if chromosome.endswith('_fix'):
+        return 'fix'
+    if chromosome.endswith('_random') or chromosome.startswith('chrUn'):
+        return 'scaffold'
+    return 'other'
+
+
+def genes_on(genes: list[dict[str, Any]]) -> str:
+    """
+    Count genes by where they are.
+
+    Args:
+        genes: The gene records
+
+    Returns:
+        Description such as "1 on the primary assembly and 6 on alternate haplotypes"
+    """
+    locations = [gene_location(gene) for gene in genes]
+    parts = [
+        f'{count} {singular if count == 1 else plural}'
+        for key, singular, plural in GENE_LOCATIONS
+        if (count := locations.count(key))
+    ]
+    return parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
+def gene_preference(gene: dict[str, Any]) -> tuple[bool, bool, str]:
+    """
+    Sort key ranking the genes that share a symbol.
+
+    Args:
+        gene: The gene record
+
+    Returns:
+        Key preferring a gene on the primary assembly, then one with an HGNC ID, then the lowest gene ID
+    """
+    return not on_primary_assembly(gene), not gene.get('hgnc'), str(gene.get('_id', ''))
+
+
+def gene_choice(genes: list[dict[str, Any]]) -> str:
+    """
+    Explain which rule of gene_preference picked the top-level gene among genes sharing a symbol.
+
+    Args:
+        genes: The gene records
+
+    Returns:
+        Reason such as "the only one on the primary assembly with an HGNC ID"
+    """
+    primary = [gene for gene in genes if on_primary_assembly(gene)]
+    candidates = primary or genes
+    scope = ' on the primary assembly' if primary else ''
+    with_hgnc = [gene for gene in candidates if gene.get('hgnc')]
+    if len(primary) == 1:
+        reason = 'the only one on the primary assembly'
+    elif len(with_hgnc) == 1:
+        reason = f'the only one{scope} with an HGNC ID'
+    elif with_hgnc:
+        reason = f'the lowest gene ID of the {len(with_hgnc)}{scope} with an HGNC ID'
+    else:
+        reason = f'the lowest gene ID of the {len(candidates)}{scope}, none of which has an HGNC ID'
+    return reason if primary else f'{reason}, as none is on the primary assembly'
+
+
 def uniprot_accession(protein: dict[str, Any]) -> str | None:
     """
     Get a protein's UniProtKB accession.
@@ -141,7 +234,7 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
         elif entity_type == 'protein':
             entity = next((protein for protein in entities if protein.get('MANE_Select')), entities[0])
         elif entity_type == 'gene':
-            entity = next((gene for gene in entities if on_primary_assembly(gene)), entities[0])
+            entity = min(entities, key=gene_preference)
         else:
             entity = entities[0]
 
@@ -201,14 +294,10 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
                 for gene in entities
             ]
             if len(entities) > 1:
-                described = (
-                    f"the gene on the primary assembly ({entity.get('_id')})"
-                    if on_primary_assembly(entity)
-                    else 'the first one, as none is on the primary assembly'
-                )
                 identifiers['note'] = (
-                    f'{entity_id} matches {len(entities)} genes (e.g. copies on alternate haplotypes or the Y '
-                    f'chromosome PAR), listed in genes. The top-level identifiers describe {described}.'
+                    f'{entity_id} matches {len(entities)} genes, listed in genes: {genes_on(entities)}. '
+                    f"The top-level identifiers describe {entity.get('_id')}, {gene_choice(entities)} (genes on the "
+                    'primary assembly are preferred, then genes with an HGNC ID, then the lowest gene ID).'
                 )
         elif entity_type == 'protein':
             # Protein identifiers
@@ -231,11 +320,13 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
                 for protein in entities
             ]
             if len(entities) > 1:
-                described = (
-                    f"the MANE Select protein ({entity.get('_id')})"
-                    if entity.get('MANE_Select')
-                    else 'the first one, as none is MANE Select'
-                )
+                mane_select = [protein for protein in entities if protein.get('MANE_Select')]
+                if len(mane_select) > 1:
+                    described = f"the first of the {len(mane_select)} MANE Select proteins ({entity.get('_id')})"
+                elif mane_select:
+                    described = f"the MANE Select protein ({entity.get('_id')})"
+                else:
+                    described = 'the first one, as none is MANE Select'
                 identifiers['note'] = (
                     f'{entity_id} matches {len(entities)} proteins (e.g. isoforms), listed in proteins. '
                     f'The top-level identifiers describe {described}. get_entity returns the full records, '

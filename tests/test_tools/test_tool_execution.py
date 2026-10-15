@@ -1268,8 +1268,9 @@ async def test_resolve_id_gene_lists_genes_sharing_a_symbol(fake_catalog):
         {'gene_id': 'ENSG00000002586', 'name': 'CD99', 'chromosome': 'chrX', 'start': 2691132, 'end': 2741309},
     ]
     assert data['note'] == (
-        'cd99 matches 2 genes (e.g. copies on alternate haplotypes or the Y chromosome PAR), listed in genes. '
-        'The top-level identifiers describe the gene on the primary assembly (ENSG00000002586).'
+        'cd99 matches 2 genes, listed in genes: 1 on the primary assembly and 1 Y chromosome PAR copy. '
+        'The top-level identifiers describe ENSG00000002586, the only one on the primary assembly (genes on the '
+        'primary assembly are preferred, then genes with an HGNC ID, then the lowest gene ID).'
     )
 
 
@@ -1293,7 +1294,66 @@ async def test_resolve_id_gene_without_primary_chromosome(fake_catalog):
     data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'HLA-X'}))
 
     assert data['identifiers']['gene_id'] == 'ENSG00000206240'
-    assert data['note'].endswith('describe the first one, as none is on the primary assembly.')
+    assert data['note'].startswith(
+        'HLA-X matches 2 genes, listed in genes: 2 on alternate haplotypes. The top-level identifiers describe '
+        'ENSG00000206240, the lowest gene ID of the 2, none of which has an HGNC ID, as none is on the primary '
+        'assembly ('
+    )
+
+
+async def test_resolve_id_gene_symbol_shared_on_the_primary_assembly(fake_catalog):
+    genes = [
+        {'_id': 'ENSG00000280987', 'name': 'MATR3', 'chr': 'chr5', 'hgnc': None},
+        {'_id': 'ENSG00000015479', 'name': 'MATR3', 'chr': 'chr5', 'hgnc': 'HGNC:6912'},
+    ]
+    fake_catalog.add('/genes', genes)
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'MATR3'}))
+
+    assert data['identifiers']['gene_id'] == 'ENSG00000015479'
+    assert data['note'] == (
+        'MATR3 matches 2 genes, listed in genes: 2 on the primary assembly. The top-level identifiers describe '
+        'ENSG00000015479, the only one on the primary assembly with an HGNC ID (genes on the primary assembly are '
+        'preferred, then genes with an HGNC ID, then the lowest gene ID).'
+    )
+
+
+@pytest.mark.parametrize('order', [[0, 1, 2, 3], [3, 2, 1, 0], [2, 0, 3, 1]])
+async def test_resolve_id_gene_choice_is_deterministic(fake_catalog, order):
+    genes = [
+        {'_id': 'ENSG00000000003', 'name': 'X1', 'chr': 'chr1', 'hgnc': 'HGNC:3'},
+        {'_id': 'ENSG00000000002', 'name': 'X1', 'chr': 'chr1', 'hgnc': 'HGNC:2'},
+        {'_id': 'ENSG00000000001', 'name': 'X1', 'chr': 'chr1', 'hgnc': None},
+        {'_id': 'ENSG00000000000', 'name': 'X1', 'chr': 'chr1_KI270706v1_random', 'hgnc': 'HGNC:1'},
+    ]
+    fake_catalog.add('/genes', [genes[i] for i in order])
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'X1'}))
+
+    assert data['identifiers']['gene_id'] == 'ENSG00000000002'
+    assert data['note'].startswith(
+        'X1 matches 4 genes, listed in genes: 3 on the primary assembly and 1 on an unlocalized or unplaced '
+        'scaffold. The top-level identifiers describe ENSG00000000002, the lowest gene ID of the 2 on the primary '
+        'assembly with an HGNC ID ('
+    )
+
+
+async def test_resolve_id_gene_choice_without_hgnc_ids(fake_catalog):
+    genes = [
+        {'_id': 'ENSG00000000002', 'name': 'X1', 'chr': 'chr1'},
+        {'_id': 'ENSG00000000001', 'name': 'X1', 'chr': 'chr2'},
+        {'_id': 'ENSG00000000000', 'name': 'X1', 'chr': 'chr1_KN196480v1_fix'},
+    ]
+    fake_catalog.add('/genes', genes)
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'X1'}))
+
+    assert data['identifiers']['gene_id'] == 'ENSG00000000001'
+    assert data['note'].startswith(
+        'X1 matches 3 genes, listed in genes: 2 on the primary assembly and 1 on a fix patch. The top-level '
+        'identifiers describe ENSG00000000001, the lowest gene ID of the 2 on the primary assembly, none of which '
+        'has an HGNC ID ('
+    )
 
 
 async def test_resolve_id_hyphenated_gene_symbol(fake_catalog):
@@ -1389,6 +1449,16 @@ async def test_resolve_id_protein_without_mane_select(fake_catalog):
 
     assert data['identifiers']['protein_id'] == 'ENSP1'
     assert 'the first one, as none is MANE Select' in data['note']
+
+
+async def test_resolve_id_protein_with_several_mane_select(fake_catalog):
+    proteins = [{'_id': f'ENSP{i}', 'MANE_Select': i > 0} for i in range(3)]
+    fake_catalog.add('/proteins', proteins)
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'P49711'}))
+
+    assert data['identifiers']['protein_id'] == 'ENSP1'
+    assert 'describe the first of the 2 MANE Select proteins (ENSP1)' in data['note']
 
 
 # list_sources
