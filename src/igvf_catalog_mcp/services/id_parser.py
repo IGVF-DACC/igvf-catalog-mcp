@@ -1,5 +1,6 @@
 """Entity ID parser with auto-detection of entity types."""
 
+import asyncio
 import re
 from typing import Any, Literal, NamedTuple
 
@@ -53,6 +54,17 @@ NAME_PARAMS: dict[str, str] = {
 NAME_FIELDS: dict[str, list[str]] = {
     'gene': ['name'],
     'protein': ['name', 'uniprot_names', 'uniprot_full_names'],
+    'ontology': ['name', 'synonyms'],
+    'drug': ['name'],
+    'complex': ['name'],
+    'pathway': ['name'],
+}
+
+# Lookup parameters searched for name candidates: one per field of NAME_FIELDS that the API can search. Gene
+# symbols are only matched against the symbol, so genes are not searched by synonym.
+NAME_LOOKUP_PARAMS: dict[str, list[str]] = {
+    'gene': ['name'],
+    'protein': ['name', 'uniprot_name', 'uniprot_full_name'],
     'ontology': ['name', 'synonyms'],
     'drug': ['name'],
     'complex': ['name'],
@@ -318,17 +330,28 @@ class IDParser:
         """
         Look up entities by name across all pages, and split them into exact and near matches.
 
-        The catalog's name search is fuzzy (e.g. LIVER finds LIVAR); only entities whose name, or another
-        name field (see NAME_FIELDS), equals the name case-insensitively match exactly.
+        The name is searched with each lookup parameter of NAME_LOOKUP_PARAMS (e.g. name and synonyms for
+        ontology terms) concurrently, and the candidates are merged by ID. The catalog's searches are fuzzy
+        (e.g. LIVER finds LIVAR); only entities whose name, or another name field (see NAME_FIELDS), equals the
+        name case-insensitively match exactly.
 
         Args:
             entity_type: The type of entity, which must have a name lookup (see NAME_PARAMS)
             name: The normalized name
 
         Returns:
-            Tuple of (exact matches, other entities the search returned)
+            Tuple of (exact matches, other entities the searches returned)
         """
-        entities = await cls.lookup_all(entity_type, NAME_PARAMS[entity_type], name)
+        results = await asyncio.gather(
+            *(cls.lookup_all(entity_type, param_name, name) for param_name in NAME_LOOKUP_PARAMS[entity_type])
+        )
+        entities: list[dict] = []
+        seen_ids = set()
+        for entity in (entity for result in results for entity in result):
+            key = entity_id(entity, entity_type)
+            if key is None or key not in seen_ids:
+                seen_ids.add(key)
+                entities.append(entity)
         exact = [entity for entity in entities if name_matches(entity, entity_type, name)]
         near = [entity for entity in entities if not name_matches(entity, entity_type, name)]
         return exact, near

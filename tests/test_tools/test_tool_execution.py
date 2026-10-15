@@ -471,7 +471,11 @@ async def test_find_associations_protein_name_queries_each_protein(fake_catalog)
     )
 
     assert [entity['id'] for entity in data['resolved_entities']] == ['ENSP00000264010', 'ENSP00000494538']
-    assert fake_catalog.params_for('/proteins') == [{'name': 'ctcf', 'limit': '50', 'page': '0'}]
+    assert fake_catalog.params_for('/proteins') == [
+        {'name': 'ctcf', 'limit': '50', 'page': '0'},
+        {'uniprot_name': 'ctcf', 'limit': '50', 'page': '0'},
+        {'uniprot_full_name': 'ctcf', 'limit': '50', 'page': '0'},
+    ]
     assert fake_catalog.params_for('/proteins/transcripts') == [
         {'protein_id': 'ENSP00000264010', 'page': '0', 'limit': '25'},
         {'protein_id': 'ENSP00000494538', 'page': '0', 'limit': '25'},
@@ -657,7 +661,10 @@ async def test_find_associations_hint_disease_name(fake_catalog):
         {'id': 'MONDO_0004670', 'name': 'lupus erythematosus'},
         {'id': 'NCIT_C27153', 'name': 'lupus erythematosus'},
     ]
-    assert fake_catalog.params_for('/ontology-terms') == [{'name': 'lupus', 'limit': '1000', 'page': '0'}]
+    assert fake_catalog.params_for('/ontology-terms') == [
+        {'name': 'lupus', 'limit': '1000', 'page': '0'},
+        {'synonyms': 'lupus', 'limit': '1000', 'page': '0'},
+    ]
     assert fake_catalog.params_for('/phenotypes/variants') == [
         {'phenotype_id': 'MONDO_0004670', 'page': '0', 'limit': '25'},
         {'phenotype_id': 'NCIT_C27153', 'page': '0', 'limit': '25'},
@@ -669,6 +676,85 @@ async def test_find_associations_hint_disease_name(fake_catalog):
     metadata = {m['endpoint']: m for m in data['query_metadata']}
     assert metadata['phenotypes_variants']['resolved_from'] == 'name'
     assert metadata['diseases_genes']['params_used']['disease_id'] == ['MONDO_0004670', 'NCIT_C27153']
+
+
+async def test_find_associations_disease_name_matching_only_a_synonym(fake_catalog):
+    fake_catalog.add(
+        '/ontology-terms', [{'term_id': 'HP_0012345', 'name': 'sleep disorder', 'synonyms': []}], params={'name': 'SLE'}
+    )
+    fake_catalog.add(
+        '/ontology-terms',
+        [
+            {'term_id': 'MONDO_0007915', 'name': 'systemic lupus erythematosus', 'synonyms': ['SLE']},
+            {'term_id': 'EFO_0002690', 'name': 'obsolete_systemic lupus erythematosus', 'synonyms': ['SLE', 'lupus']},
+            {'term_id': 'MONDO_0000001', 'name': 'other', 'synonyms': ['SLE-like']},
+        ],
+        params={'synonyms': 'SLE'},
+    )
+    fake_catalog.add('/phenotypes/variants', [{'variant': 'variants/x'}], params={'phenotype_id': 'EFO_0002690'})
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'SLE', 'relationship': 'genetic', 'hint': 'disease'}
+        )
+    )
+
+    assert [entity['id'] for entity in data['resolved_entities']] == ['MONDO_0007915', 'EFO_0002690']
+    assert data['num_associations'] == 1
+    assert [params['phenotype_id'] for params in fake_catalog.params_for('/phenotypes/variants')] == [
+        'MONDO_0007915',
+        'EFO_0002690',
+    ]
+
+
+async def test_find_associations_disease_name_merges_name_and_synonym_matches(fake_catalog):
+    mondo = {'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus', 'synonyms': ['lupus']}
+    efo = {'term_id': 'EFO_0002690', 'name': 'obsolete_systemic lupus erythematosus', 'synonyms': ['SLE', 'lupus']}
+    fake_catalog.add('/ontology-terms', [mondo], params={'name': 'lupus'})
+    fake_catalog.add('/ontology-terms', [efo, mondo], params={'synonyms': 'lupus'})
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'lupus', 'relationship': 'genetic', 'hint': 'disease'}
+        )
+    )
+
+    assert [entity['id'] for entity in data['resolved_entities']] == ['MONDO_0004670', 'EFO_0002690']
+
+
+async def test_find_associations_protein_uniprot_name(fake_catalog):
+    proteins = [
+        {'_id': 'ENSP00000264010', 'name': 'CTCF', 'uniprot_names': ['CTCF_HUMAN']},
+        {'_id': 'ENSP00000494538', 'name': 'CTCF', 'uniprot_names': ['CTCF_HUMAN']},
+    ]
+    fake_catalog.add('/proteins', proteins, params={'uniprot_name': 'CTCF_HUMAN'})
+    fake_catalog.add('/proteins/transcripts', [{'transcript': 'transcripts/x'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'CTCF_HUMAN', 'hint': 'protein', 'relationship': 'transcription'},
+        )
+    )
+
+    assert [entity['id'] for entity in data['resolved_entities']] == ['ENSP00000264010', 'ENSP00000494538']
+    assert data['num_associations'] == 2
+    assert {params['uniprot_name'] for params in fake_catalog.params_for('/proteins') if 'uniprot_name' in params} == {
+        'CTCF_HUMAN'
+    }
+
+
+async def test_find_associations_name_suggestions_come_from_every_search(fake_catalog):
+    fake_catalog.add('/ontology-terms', [{'term_id': 'HP_1', 'name': 'sleep disorder'}], params={'name': 'SLEx'})
+    fake_catalog.add('/ontology-terms', [{'term_id': 'NCIT_1', 'name': 'SLE-like'}], params={'synonyms': 'SLEx'})
+
+    result = await call_tool(
+        'igvf_catalog_find_associations', {'entity_id': 'SLEx', 'relationship': 'genetic', 'hint': 'disease'}
+    )
+
+    assert result[0].text == (
+        "No ontology term found with name 'SLEx'. Did you mean: sleep disorder (HP_1), SLE-like (NCIT_1)?"
+    )
 
 
 async def test_find_associations_ontology_term(fake_catalog):

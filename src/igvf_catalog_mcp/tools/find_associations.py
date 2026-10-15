@@ -43,8 +43,10 @@ FIND_ASSOCIATIONS_TOOL = Tool(
                 'description': (
                     'Optional entity type of entity_id. With a gene, protein, disease, drug or complex hint, '
                     "an identifier that is not an ID of that type is used as a name (e.g. 'lupus' with hint "
-                    "'disease'). Names are resolved to the entities whose name (or synonym) matches exactly, listed "
-                    'in resolved_entities, and associations are queried by their IDs. '
+                    "'disease'). Names are resolved to the entities that match exactly (case-insensitively): genes "
+                    'by symbol, proteins by name, UniProt name or UniProt full name, disease/ontology terms by name '
+                    'or synonym, drugs and complexes by name. They are listed in resolved_entities, and associations '
+                    'are queried by their IDs. '
                     "Also selects the type of IDs that fit several, e.g. 'P2RY12' with hint 'protein'."
                 ),
                 'enum': ['gene', 'variant', 'protein', 'transcript', 'disease', 'drug', 'complex'],

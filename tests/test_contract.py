@@ -14,7 +14,13 @@ from igvf_catalog_async_client import AsyncIgvfCatalogApi
 
 from igvf_catalog_mcp.services.api_client import method_params
 from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS, RELATIONSHIP_TYPE_MAPPING
-from igvf_catalog_mcp.services.id_parser import ENTITY_MAX_LIMITS, ENTITY_METHODS, NAME_PARAMS, IDParser
+from igvf_catalog_mcp.services.id_parser import (
+    ENTITY_MAX_LIMITS,
+    ENTITY_METHODS,
+    NAME_LOOKUP_PARAMS,
+    NAME_PARAMS,
+    IDParser,
+)
 from igvf_catalog_mcp.tools.find_associations import (
     EDGE_PARAM_ALIASES,
     RESOLVED_EDGE_PARAMS,
@@ -92,6 +98,15 @@ def test_name_lookup_params_match_client():
     for entity_type, param_name in NAME_PARAMS.items():
         method_name = IDParser.get_client_method(entity_type)
         assert param_name in method_params(method_name), f'{param_name} not accepted by {method_name}'
+
+
+def test_name_lookup_params_cover_every_name_lookup():
+    assert set(NAME_LOOKUP_PARAMS) == set(NAME_PARAMS)
+    for entity_type, param_names in NAME_LOOKUP_PARAMS.items():
+        assert NAME_PARAMS[entity_type] in param_names
+        method_name = IDParser.get_client_method(entity_type)
+        missing = set(param_names) - method_params(method_name)
+        assert not missing, f'{sorted(missing)} not accepted by {method_name}'
 
 
 def test_entity_max_limits_match_client():

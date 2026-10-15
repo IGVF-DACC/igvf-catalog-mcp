@@ -379,6 +379,32 @@ async def test_lookup_name_matches_other_names_case_insensitively(fake_catalog):
 
 
 @pytest.mark.parametrize(
+    ('entity_type', 'path', 'params'),
+    [
+        ('ontology', '/ontology-terms', ['name', 'synonyms']),
+        ('protein', '/proteins', ['name', 'uniprot_name', 'uniprot_full_name']),
+        ('gene', '/genes', ['name']),
+        ('drug', '/drugs', ['name']),
+        ('complex', '/complexes', ['name']),
+    ],
+)
+async def test_lookup_name_searches_every_name_field(fake_catalog, entity_type, path, params):
+    await IDParser.lookup_name(entity_type, 'x')
+
+    assert [next(iter(set(request) - {'limit', 'page'})) for request in fake_catalog.params_for(path)] == params
+
+
+async def test_lookup_name_merges_candidates_by_id(fake_catalog):
+    lupus = {'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus', 'synonyms': ['lupus']}
+    efo = {'term_id': 'EFO_0002690', 'name': 'obsolete_systemic lupus erythematosus', 'synonyms': ['lupus']}
+    sle = {'term_id': 'MONDO_0007915', 'name': 'systemic lupus erythematosus', 'synonyms': ['SLE']}
+    fake_catalog.add('/ontology-terms', [lupus, sle], params={'name': 'lupus'})
+    fake_catalog.add('/ontology-terms', [efo, lupus], params={'synonyms': 'lupus'})
+
+    assert await IDParser.lookup_name('ontology', 'lupus') == ([lupus, efo], [sle])
+
+
+@pytest.mark.parametrize(
     ('entity', 'name'),
     [
         ({'name': 'CTCF', 'uniprot_names': ['CTCF_HUMAN']}, 'ctcf'),
