@@ -96,6 +96,11 @@ API_PAGE_SIZE = 25
 # length of the catalog's longest symbols (readthrough genes such as ARHGAP27P1-BPTFP1-KPNA2P3)
 GENE_SYMBOL = r'^(?=.{2,25}$)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$'
 
+# Irregular gene symbols, which GENE_SYMBOL does not cover: letters and digits with -, _ or ., possibly starting with a
+# digit (e.g. C4B_2, Y_RNA, 5S_rRNA, 7SK, CTD-2194D22.4). Unknown accessions such as NM_000546 have the same form, so an
+# identifier matching only this pattern is a gene only if a gene with exactly that symbol exists.
+IRREGULAR_SYMBOL = r'^(?=.{2,25}$)(?=.*[A-Z])[A-Z0-9][A-Z0-9._-]*$'
+
 # Gene symbols that can also fit other ID patterns: some symbols (e.g. P2RY12, B3GAT1) are also valid UniProt
 # accessions, others (RS1, CA1) rsIDs or CA IDs. No catalog symbol with a hyphen or more than 10 characters fits one.
 ID_SHAPED_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
@@ -313,8 +318,8 @@ class IDParser:
         Gene symbols only match genes whose symbol equals them case-insensitively, so they are looked up
         across all pages and the exact matches are returned, with the symbol in the catalog's case (e.g.
         C1orf112). Without a hint, an identifier that fits both another ID pattern and ID_SHAPED_SYMBOL (e.g.
-        RS1, CA1 or P2RY12) is a gene if a gene with exactly that symbol exists. Either check costs one gene
-        name lookup.
+        RS1, CA1 or P2RY12) is a gene if a gene with exactly that symbol exists, and so is one that fits no
+        pattern but IRREGULAR_SYMBOL (e.g. C4B_2 or 7SK). Each check costs one gene name lookup.
 
         Args:
             identifier: The ID string to parse
@@ -324,9 +329,17 @@ class IDParser:
             The Identification, with the exact and near matches of a gene symbol
 
         Raises:
-            ValueError: As detect_entity_type
+            ValueError: As detect_entity_type, unless the identifier is an irregular gene symbol
         """
-        entity_type, param_name = cls.detect_entity_type(identifier, hint)
+        try:
+            entity_type, param_name = cls.detect_entity_type(identifier, hint)
+        except ValueError:
+            if hint or not re.match(IRREGULAR_SYMBOL, identifier.strip(), re.IGNORECASE):
+                raise
+            matches, near_matches = await cls.lookup_name('gene', identifier.strip().upper())
+            if not matches:
+                raise
+            return Identification('gene', 'name', matches[0].get('name'), matches, near_matches)
         normalized_id = cls.normalize_identifier(identifier, entity_type, param_name)
 
         is_symbol = (entity_type, param_name) == ('gene', 'name')

@@ -518,6 +518,56 @@ async def test_identify_hint_skips_gene_check(fake_catalog):
     assert fake_catalog.requests == []
 
 
+@pytest.mark.parametrize(
+    ('identifier', 'symbol', 'query'),
+    [
+        ('C4B_2', 'C4B_2', 'C4B_2'),
+        ('y_rna', 'Y_RNA', 'Y_RNA'),
+        ('7sk', '7SK', '7SK'),
+        ('5S_rRNA', '5S_rRNA', '5S_RRNA'),
+        ('Metazoa_SRP', 'Metazoa_SRP', 'METAZOA_SRP'),
+        ('CTD-2194D22.4', 'CTD-2194D22.4', 'CTD-2194D22.4'),
+    ],
+)
+async def test_identify_irregular_gene_symbol(fake_catalog, identifier, symbol, query):
+    gene = {'_id': 'ENSG00000224389', 'name': symbol}
+    other = {'_id': 'ENSG00000000001', 'name': f'{symbol}X'}
+    fake_catalog.add('/genes', [other, gene])
+
+    assert await IDParser.identify(identifier) == ('gene', 'name', symbol, [gene], [other])
+    assert fake_catalog.params_for('/genes') == [{'name': query, 'limit': '500', 'page': '0'}]
+
+
+@pytest.mark.parametrize('identifier', ['NM_000546', 'NP_000537', 'XYZ_0001', '7SKX'])
+async def test_identify_irregular_symbol_without_exact_gene_is_not_detected(fake_catalog, identifier):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000141510', 'name': 'TP53'}])
+
+    with pytest.raises(ValueError, match='^Could not detect entity type'):
+        await IDParser.identify(identifier)
+    assert len(fake_catalog.params_for('/genes')) == 1
+
+
+@pytest.mark.parametrize('identifier', ['chrX:1000', '???', 'C4B 2', '_C4B', '1234', 'A' * 26])
+async def test_identify_non_symbols_skip_gene_lookup(fake_catalog, identifier):
+    with pytest.raises(ValueError, match='^Could not detect entity type'):
+        await IDParser.identify(identifier)
+    assert fake_catalog.requests == []
+
+
+def test_irregular_gene_symbols_need_a_lookup_to_be_detected():
+    with pytest.raises(ValueError, match='^Could not detect entity type'):
+        IDParser.detect_entity_type('C4B_2')
+    assert IDParser.detect_entity_type('C4B_2', hint='gene') == ('gene', 'name')
+
+
+async def test_identify_irregular_gene_symbol_with_gene_hint(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000000001', 'name': 'C4B'}])
+
+    assert await IDParser.identify('C4B_2', hint='gene') == (
+        'gene', 'name', 'C4B_2', [], [{'_id': 'ENSG00000000001', 'name': 'C4B'}]
+    )
+
+
 async def test_lookup_name_matches_other_names_case_insensitively(fake_catalog):
     lupus = {'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus', 'synonyms': ['lupus']}
     sle = {'term_id': 'MONDO_0007915', 'name': 'systemic lupus erythematosus', 'synonyms': ['SLE']}
