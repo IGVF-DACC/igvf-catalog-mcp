@@ -466,6 +466,11 @@ async def test_search_region_decimal_positions_are_exact(fake_catalog):
             "^ValueError: Invalid position: '1.0000001M' is 1000000.1 bp, not a whole number of base pairs$",
         ),
         ('chr1:1,5M-2M', r"^ValueError: Invalid position format: '1,5M'\. "),
+        (
+            'chr1:1.0000000000000000000000000001M-2M',
+            r"^ValueError: Invalid position: '1\.0000000000000000000000000001M' is "
+            r'1000000\.0000000000000000000001 bp, not a whole number of base pairs$',
+        ),
     ],
 )
 async def test_search_region_invalid_position(fake_catalog, region, message):

@@ -1,7 +1,7 @@
 """Genomic region parser with flexible format support."""
 
 import re
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import NamedTuple
 
 # Number part of a position: digits, optionally with commas between groups of three, and an optional decimal part
@@ -168,11 +168,15 @@ class RegionParser:
                 "three (e.g. '1,000,000'), or a number with a K, M or G suffix (e.g. '1.5M')"
             )
 
-        position = Decimal(number.replace(',', '')) * multiplier
-        if position != position.to_integral_value():
-            raise ValueError(
-                f"Invalid position: '{position_str}' is {position.normalize():f} bp, not a whole number of base pairs"
-            )
+        digits = number.replace(',', '')
+        with localcontext() as context:
+            context.prec = len(digits) + len(str(multiplier))
+            position = Decimal(digits) * multiplier
+            if position != position.to_integral_value():
+                raise ValueError(
+                    f"Invalid position: '{position_str}' is {position.normalize():f} bp, "
+                    'not a whole number of base pairs'
+                )
 
         return int(position)
 

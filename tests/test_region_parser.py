@@ -79,6 +79,35 @@ def test_parse_position_exact(position, expected):
     assert RegionParser._parse_position(position) == expected
 
 
+@pytest.mark.parametrize(
+    ('position', 'expected'),
+    [
+        ('123456789012345678901234567891', 123456789012345678901234567891),
+        ('123,456,789,012,345,678,901,234,567,891', 123456789012345678901234567891),
+        ('123456789012345678901234567.891K', 123456789012345678901234567891),
+        ('9' * 40 + 'K', int('9' * 40) * 1_000),
+    ],
+)
+def test_parse_position_with_many_digits_is_exact(position, expected):
+    """Test that positions with more digits than the default decimal precision are not rounded."""
+    assert RegionParser._parse_position(position) == expected
+
+
+@pytest.mark.parametrize(
+    ('position', 'bp'),
+    [
+        ('1.0000000000000000000000000001M', '1000000.0000000000000000000001'),
+        ('123456789012345678901234567891.5', '123456789012345678901234567891.5'),
+        ('1.0000000000000000000000000000000000001G', '1000000000.0000000000000000000000000001'),
+    ],
+)
+def test_position_with_many_digits_must_be_whole_number(position, bp):
+    """Test that a fractional position is rejected even when it has more digits than the default precision."""
+    message = rf"^Invalid position: '{re.escape(position)}' is {re.escape(bp)} bp, not a whole number of base pairs$"
+    with pytest.raises(ValueError, match=message):
+        RegionParser._parse_position(position)
+
+
 def test_parse_decimal_m_region_is_exact():
     """Test that a decimal M end position is not rounded down."""
     assert str(RegionParser.parse_region('chrX:1M-1.001M')) == 'chrX:1000000-1001000'
