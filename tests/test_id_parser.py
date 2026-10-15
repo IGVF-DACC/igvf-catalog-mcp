@@ -163,6 +163,9 @@ def test_detect_ontology_mondo():
         ('Oncotree_hcl-v', 'Oncotree_HCL-V'),
         ('pr_a6h6a9-1', 'PR_A6H6A9-1'),
         ('MBA_ENTITY', 'MBA_ENTITY'),
+        ('hba_4005', 'HBA_4005'),
+        ('Oncotree_AA', 'Oncotree_AA'),
+        ('HBA:HUMAN', 'HBA_HUMAN'),
     ],
 )
 def test_generic_ontology_term_ids(identifier, expected):
@@ -189,7 +192,8 @@ def test_generic_ontology_pattern_keeps_specific_patterns(identifier, expected):
 @pytest.mark.parametrize(
     'identifier',
     ['NM_000546', 'NP_000537', 'chrX:1000', 'XYZ_0001', 'chr1:1000', 'NC_000017', 'Oncotree_', 'Oncotree_A__B',
-     'Oncotree_-A', 'Oncotree_A-', 'type_two', 'CHR_9606-chr1', 'lipidmaps:LMPK12010207'],
+     'Oncotree_-A', 'Oncotree_A-', 'type_two', 'CHR_9606-chr1', 'lipidmaps:LMPK12010207', 'HBA_HUMAN', 'hba_human',
+     'GO_MOUSE', 'CL_ECOLI', 'CTCF_HUMAN'],
 )
 def test_unknown_prefixes_are_not_ontology_term_ids(identifier):
     with pytest.raises(ValueError, match='Could not detect entity type'):
@@ -274,6 +278,8 @@ def test_hint_without_name_lookup_rejects_names():
         ('CPX-9', 'gene', "'CPX-9' is a complex ID, not a gene name."),
         ('R-HSA-164843', 'gene', "'R-HSA-164843' is a pathway ID, not a gene name."),
         ('P49711-2', 'gene', "'P49711-2' is a protein ID, not a gene name."),
+        ('Oncotree_ACC', 'gene', "'Oncotree_ACC' is an ontology term ID, not a gene name."),
+        ('NCIT_C27153', 'protein', "'NCIT_C27153' is an ontology term ID, not a protein name."),
     ],
 )
 def test_hint_rejects_ids_of_other_types(identifier, hint, message):
@@ -294,6 +300,20 @@ def test_hint_rejects_ids_of_other_types(identifier, hint, message):
 )
 def test_hint_accepts_symbol_shaped_ids_as_names(identifier, hint, expected):
     assert IDParser.detect_entity_type(identifier, hint=hint) == expected
+
+
+@pytest.mark.parametrize(
+    'identifier', ['HBA_HUMAN', 'hba_human', 'CTCF_HUMAN', 'P53_MOUSE', 'HBA_9HIV1', 'Oncotree_ACC']
+)
+def test_protein_hint_accepts_uniprot_entry_names(identifier):
+    assert IDParser.detect_entity_type(identifier, hint='protein') == ('protein', 'name')
+
+
+@pytest.mark.parametrize('identifier', ['HBA_HUMAN', 'CTCF_HUMAN'])
+async def test_identify_uniprot_entry_name_without_hint_is_not_detected(fake_catalog, identifier):
+    with pytest.raises(ValueError, match='^Could not detect entity type'):
+        await IDParser.identify(identifier)
+    assert fake_catalog.params_for('/ontology-terms') == []
 
 
 @pytest.mark.parametrize(

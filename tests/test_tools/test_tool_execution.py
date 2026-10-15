@@ -291,6 +291,16 @@ async def test_get_entity_hint_looks_up_protein_by_name(fake_catalog):
     assert fake_catalog.params_for('/genes') == []
 
 
+async def test_get_entity_hint_looks_up_uniprot_entry_name_as_protein(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP00000322421', 'name': 'HBA1', 'uniprot_names': ['HBA_HUMAN']}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'HBA_HUMAN', 'hint': 'protein'}))
+
+    assert data['entities'][0]['_id'] == 'ENSP00000322421'
+    assert fake_catalog.params_for('/proteins') == [{'name': 'HBA_HUMAN', 'page': '0', 'limit': '25'}]
+    assert fake_catalog.params_for('/ontology-terms') == []
+
+
 async def test_get_entity_hint_looks_up_disease_by_name(fake_catalog):
     fake_catalog.add('/ontology-terms', [{'term_id': 'MONDO_0004670', 'name': 'lupus erythematosus'}])
 
@@ -1010,6 +1020,26 @@ async def test_find_associations_protein_uniprot_name(fake_catalog):
     assert {params['uniprot_name'] for params in fake_catalog.params_for('/proteins') if 'uniprot_name' in params} == {
         'CTCF_HUMAN'
     }
+
+
+async def test_find_associations_uniprot_name_with_ontology_prefix(fake_catalog):
+    proteins = [
+        {'_id': 'ENSP00000251595', 'name': 'HBA2', 'uniprot_names': ['HBA_HUMAN']},
+        {'_id': 'ENSP00000322421', 'name': 'HBA1', 'uniprot_names': ['HBA_HUMAN']},
+    ]
+    fake_catalog.add('/proteins', proteins, params={'uniprot_name': 'HBA_HUMAN'})
+    fake_catalog.add('/proteins/proteins', [{'protein 2': 'proteins/x'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'HBA_HUMAN', 'hint': 'protein', 'relationship': 'physical'},
+        )
+    )
+
+    assert [entity['id'] for entity in data['resolved_entities']] == ['ENSP00000251595', 'ENSP00000322421']
+    assert data['num_associations'] > 0
+    assert fake_catalog.params_for('/ontology-terms') == []
 
 
 async def test_find_associations_name_suggestions_come_from_every_search(fake_catalog):
