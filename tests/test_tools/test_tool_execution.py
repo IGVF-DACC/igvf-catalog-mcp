@@ -6,6 +6,7 @@ import pytest
 from mcp import types
 
 from igvf_catalog_mcp.server import app, call_tool
+from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS
 from igvf_catalog_mcp.services.formatter import ToolError
 
 BRCA1 = {'_id': 'ENSG00000012048', 'name': 'BRCA1'}
@@ -1268,6 +1269,54 @@ async def test_find_associations_partial_endpoint_error_is_reported(fake_catalog
 
     assert data['num_associations'] == 1
     assert 'boom' in data['query_metadata'][0]['error']
+
+
+async def test_find_associations_partial_failure_note(fake_catalog):
+    fake_catalog.add('/genes/variants', TimeoutError())
+    fake_catalog.add('/genes/genomic-elements', [{'genomic_element': 'genomic_elements/x'}] * 25)
+
+    data = response_json(await call_tool('igvf_catalog_find_associations', BRCA1_REGULATORY))
+
+    assert data['_pagination']['has_more'] is True
+    assert data['note'] == (
+        'The query failed for genes_variants (see the error in query_metadata), '
+        'so _pagination.has_more covers only the endpoints that succeeded.'
+    )
+
+
+async def test_find_associations_partial_failure_note_combines_with_filter_note(fake_catalog):
+    fake_catalog.add('/genes/variants', TimeoutError())
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {**BRCA1_REGULATORY, 'filters': {'r2': 0.8}})
+    )
+
+    assert data['note'] == (
+        'The query failed for genes_variants (see the error in query_metadata), '
+        'so _pagination.has_more covers only the endpoints that succeeded. '
+        'Filters not applied to any endpoint: r2. '
+        'See filters_not_applied in query_metadata for the reasons, and list_sources for valid values.'
+    )
+
+
+async def test_find_associations_unsupported_identifier_is_not_a_failure(fake_catalog, monkeypatch):
+    monkeypatch.setitem(EDGE_ENDPOINTS, 'genes_genes', {**EDGE_ENDPOINTS['genes_genes'], 'from_params': ['hgnc_id']})
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'ENSG00000012048', 'relationship': 'all'})
+    )
+
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert metadata['genes_genes']['error'].startswith("Identifier type 'gene_id' is not supported by this endpoint.")
+    assert 'note' not in data
+
+    fake_catalog.add('/genes/variants', TimeoutError())
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'ENSG00000012048', 'relationship': 'all'})
+    )
+
+    assert data['note'].startswith('The query failed for genes_variants (see the error in query_metadata), ')
 
 
 async def test_find_associations_unknown_relationship(fake_catalog):

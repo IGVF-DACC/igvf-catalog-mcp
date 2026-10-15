@@ -365,6 +365,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         # Query all applicable endpoints
         all_associations = []
         query_metadata = []
+        failed_endpoints = []
 
         client = get_client()
         resolved_ids: list[str] | None = None
@@ -454,6 +455,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
 
             except Exception as e:
                 # Log error but continue with other endpoints
+                failed_endpoints.append(endpoint_key)
                 query_metadata.append(
                     {
                         'endpoint': endpoint_key,
@@ -502,11 +504,19 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             'query_metadata': query_metadata,
             'associations': all_associations,
         }
+        notes = []
+        if failed_endpoints:
+            notes.append(
+                f"The query failed for {', '.join(failed_endpoints)} (see the error in query_metadata), "
+                'so _pagination.has_more covers only the endpoints that succeeded.'
+            )
         if unused_filters:
-            response_data['note'] = (
+            notes.append(
                 f"Filters not applied to any endpoint: {', '.join(unused_filters)}. "
                 'See filters_not_applied in query_metadata for the reasons, and list_sources for valid values.'
             )
+        if notes:
+            response_data['note'] = ' '.join(notes)
 
         response_text = json.dumps(response_data, indent=2)
 
