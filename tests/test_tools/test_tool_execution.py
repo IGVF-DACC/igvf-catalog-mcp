@@ -601,10 +601,59 @@ async def test_find_associations_rsid_resolved_to_spdi_for_coding(fake_catalog):
     assert [a['_endpoint'] for a in data['associations']] == ['variants_coding_variants'] * 2
     metadata = data['query_metadata'][0]
     assert metadata['resolved_from'] == 'rsid'
+    assert metadata['queried_ids'] == 2
     assert metadata['results_count'] == 2
     assert metadata['_pagination']['has_more'] is False
     assert metadata['params_used']['spdi'] == ['NC_000022.11:43928846:C:G', 'NC_000022.11:43928846:C:T']
     assert 'error' not in metadata
+
+
+async def test_find_associations_limit_applies_per_resolved_id(fake_catalog):
+    proteins = [{'_id': f'ENSP0000000000{i}', 'name': 'CTCF'} for i in range(3)]
+    fake_catalog.add('/proteins', proteins)
+    fake_catalog.add('/proteins/proteins', [{'i': i} for i in range(3)])
+    fake_catalog.add('/proteins/proteins', [{'i': 0}], params={'protein_id': 'ENSP00000000002'})
+    fake_catalog.add('/proteins/complexes', [{'complex': 'complexes/x'}])
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'CTCF', 'hint': 'protein', 'relationship': 'physical', 'limit': 3, 'page': 1},
+        )
+    )
+
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    proteins_proteins = metadata['proteins_proteins']
+    assert proteins_proteins['queried_ids'] == 3
+    assert proteins_proteins['results_count'] == 7
+    assert proteins_proteins['_pagination'] == {
+        'current_page': 1,
+        'limit': 3,
+        'limit_applies_to': 'each of the 3 queried IDs',
+        'results_returned': 7,
+        'has_more': True,
+        'next_page': 2,
+        'note': 'More results available. Call again with page=2 to continue.',
+    }
+    assert metadata['proteins_complexes']['queried_ids'] == 3
+    assert metadata['proteins_complexes']['_pagination']['has_more'] is False
+    assert [params['limit'] for params in fake_catalog.params_for('/proteins/proteins')] == ['3'] * 3
+    assert [params['page'] for params in fake_catalog.params_for('/proteins/proteins')] == ['1'] * 3
+    assert data['_pagination']['queried_ids'] == {'proteins_proteins': 3, 'proteins_complexes': 3}
+    assert data['_pagination']['results_returned'] == data['num_associations'] == len(data['associations']) == 10
+    assert data['_pagination']['has_more'] is True
+
+
+async def test_find_associations_single_resolved_id_has_no_per_id_note(fake_catalog):
+    fake_catalog.add('/genes', [BRCA1])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'BRCA1', 'relationship': 'genetic'})
+    )
+
+    assert data['query_metadata'][0]['queried_ids'] == 1
+    assert 'limit_applies_to' not in data['query_metadata'][0]['_pagination']
+    assert 'queried_ids' not in data['_pagination']
 
 
 async def test_find_associations_reports_capped_limit(fake_catalog):

@@ -28,6 +28,9 @@ FIND_ASSOCIATIONS_TOOL = Tool(
         'Returns detailed associations with p-values, effect sizes, and sources. '
         'The limit applies to each data source (endpoint) separately, so a relationship backed by several '
         'endpoints can return up to limit × endpoints associations; query_metadata lists the per-endpoint counts. '
+        'When the identifier resolves to several IDs (a name matching several entities, listed in resolved_entities, '
+        'or an rsID with several alleles), each endpoint is queried once per ID and the limit applies to each ID; '
+        'query_metadata reports queried_ids. '
         'Supports pagination — check _pagination.has_more in the response and use the page parameter '
         'to retrieve additional results.'
     ),
@@ -86,9 +89,10 @@ FIND_ASSOCIATIONS_TOOL = Tool(
             'limit': {
                 'type': 'integer',
                 'description': (
-                    'Maximum results per data source (endpoint); with several endpoints, '
-                    'up to limit × endpoints rows (default: 25). Some endpoints have a lower maximum page size '
-                    '(see max_limit in list_sources); query_metadata reports limit_capped_to when it applies.'
+                    'Maximum results per data source (endpoint) and, when the identifier resolves to several IDs, '
+                    'per ID; up to limit × endpoints × IDs rows (default: 25). query_metadata reports queried_ids. '
+                    'Some endpoints have a lower maximum page size (see max_limit in list_sources); query_metadata '
+                    'reports limit_capped_to when it applies.'
                 ),
                 'minimum': 1,
                 'maximum': 500,
@@ -375,7 +379,10 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     metadata['filters_not_applied'] = filters_not_applied
                 if resolve:
                     metadata['resolved_from'] = param_name
+                    metadata['queried_ids'] = len(lookup_ids)
                     metadata['params_used'][endpoint_param_name] = lookup_ids
+                    if len(lookup_ids) > 1:
+                        metadata['_pagination']['limit_applies_to'] = f'each of the {len(lookup_ids)} queried IDs'
                     if not lookup_ids:
                         metadata['note'] = (
                             f"No {entity_type} found with {param_name}='{normalized_id}', "
@@ -411,6 +418,9 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         capped = {m['endpoint']: m['limit_capped_to'] for m in query_metadata if 'limit_capped_to' in m}
         if capped:
             top_pagination['limit_capped_to'] = capped
+        fanned_out = {m['endpoint']: m['queried_ids'] for m in query_metadata if m.get('queried_ids', 0) > 1}
+        if fanned_out:
+            top_pagination['queried_ids'] = fanned_out
         if any_has_more:
             top_pagination['next_page'] = page + 1
             top_pagination['note'] = f'More results available. Call again with page={page + 1} to continue.'
