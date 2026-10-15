@@ -25,6 +25,7 @@ RESOLVE_ID_TOOL = Tool(
             'id': {
                 'type': 'string',
                 'description': "Identifier to resolve (e.g., 'rs80357906', 'BRCA1', 'NC_000017.11:43044295:G:A')",
+                'minLength': 1,
             },
             'target_type': {
                 'type': 'string',

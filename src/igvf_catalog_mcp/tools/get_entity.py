@@ -29,6 +29,7 @@ GET_ENTITY_TOOL = Tool(
             'id': {
                 'type': 'string',
                 'description': "Entity identifier (e.g., 'BRCA1', 'rs12345', 'ENSG00000139618')",
+                'minLength': 1,
             },
             'hint': {
                 'type': 'string',

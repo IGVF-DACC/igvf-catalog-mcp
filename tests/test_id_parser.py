@@ -308,6 +308,21 @@ def test_reject_malformed_gene_symbols(identifier):
         IDParser.detect_entity_type(identifier)
 
 
+@pytest.mark.parametrize('identifier', ['', ' ', '\t\n'])
+@pytest.mark.parametrize('hint', [None, 'gene', 'protein', 'disease', 'drug', 'complex', 'variant', 'transcript'])
+def test_blank_identifier_is_rejected(identifier, hint):
+    with pytest.raises(ValueError, match='^The identifier is empty'):
+        IDParser.detect_entity_type(identifier, hint=hint)
+
+
+@pytest.mark.parametrize('hint', [None, 'gene', 'protein', 'disease'])
+async def test_identify_blank_identifier_makes_no_request(fake_catalog, hint):
+    with pytest.raises(ValueError, match='^The identifier is empty'):
+        await IDParser.identify(' ', hint)
+
+    assert fake_catalog.requests == []
+
+
 def test_unknown_hint():
     with pytest.raises(ValueError, match="Unknown hint: 'cell'"):
         IDParser.detect_entity_type('BRCA1', hint='cell')
@@ -484,6 +499,14 @@ async def test_lookup_name_searches_every_name_field(fake_catalog, entity_type, 
     await IDParser.lookup_name(entity_type, 'x')
 
     assert [next(iter(set(request) - {'limit', 'page'})) for request in fake_catalog.params_for(path)] == params
+
+
+@pytest.mark.parametrize('name', ['', '  '])
+async def test_lookup_name_rejects_blank_name(fake_catalog, name):
+    with pytest.raises(ValueError, match='^The name is empty'):
+        await IDParser.lookup_name('ontology', name)
+
+    assert fake_catalog.requests == []
 
 
 async def test_lookup_name_merges_candidates_by_id(fake_catalog):

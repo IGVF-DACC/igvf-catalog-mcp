@@ -263,11 +263,13 @@ class IDParser:
             argument of the entity's lookup method (see get_client_method)
 
         Raises:
-            ValueError: If the identifier format is not recognized, the hint is unknown, or the identifier is an
-                ID of a different type than the hint (strings shaped like gene symbols count as names)
+            ValueError: If the identifier is blank or its format is not recognized, the hint is unknown, or the
+                identifier is an ID of a different type than the hint (strings shaped like gene symbols count as names)
         """
         # Normalize identifier
         identifier = identifier.strip()
+        if not identifier:
+            raise ValueError('The identifier is empty. Provide an ID or a name.')
 
         # A hint selects the entity type; identifiers that are not IDs of that type are looked up by name
         if hint:
@@ -354,7 +356,12 @@ class IDParser:
 
         Returns:
             Tuple of (exact matches, other entities the searches returned)
+
+        Raises:
+            ValueError: If the name is blank, which the API would treat as no filter
         """
+        if not name.strip():
+            raise ValueError('The name is empty. Provide a name to look up.')
         results = await asyncio.gather(
             *(cls.lookup_all(entity_type, param_name, name) for param_name in NAME_LOOKUP_PARAMS[entity_type])
         )

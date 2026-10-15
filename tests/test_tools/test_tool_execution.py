@@ -1323,6 +1323,50 @@ async def test_invalid_input_is_a_tool_error(fake_catalog, name, arguments, mess
     assert message in result.content[0].text
 
 
+@pytest.mark.parametrize(
+    ('name', 'arguments'),
+    [
+        ('igvf_catalog_get_entity', {'id': ' ', 'hint': 'gene'}),
+        ('igvf_catalog_get_entity', {'id': ' ', 'hint': 'protein', 'limit': 3}),
+        ('igvf_catalog_get_entity', {'id': '\t'}),
+        ('igvf_catalog_resolve_id', {'id': ' '}),
+        ('igvf_catalog_find_associations', {'entity_id': ' ', 'hint': 'disease', 'relationship': 'genetic'}),
+        ('igvf_catalog_find_associations', {'entity_id': ' ', 'relationship': 'genetic'}),
+        ('igvf_catalog_find_ld', {'variant_id': ' '}),
+    ],
+)
+async def test_blank_identifier_is_a_tool_error(fake_catalog, name, arguments):
+    result = await call_tool_request(name, arguments)
+
+    assert result.isError is True
+    assert result.content[0].text == 'ValueError: The identifier is empty. Provide an ID or a name.'
+    assert fake_catalog.requests == []
+
+
+@pytest.mark.parametrize(
+    ('name', 'arguments'),
+    [
+        ('igvf_catalog_get_entity', {'id': '', 'hint': 'gene'}),
+        ('igvf_catalog_resolve_id', {'id': ''}),
+        ('igvf_catalog_find_associations', {'entity_id': '', 'hint': 'disease', 'relationship': 'genetic'}),
+        ('igvf_catalog_find_ld', {'variant_id': ''}),
+    ],
+)
+async def test_empty_identifier_fails_schema_validation(fake_catalog, name, arguments):
+    result = await call_tool_request(name, arguments)
+
+    assert result.isError is True
+    assert 'Input validation error' in result.content[0].text
+    assert fake_catalog.requests == []
+
+
+async def test_empty_identifier_is_rejected_without_schema_validation(fake_catalog):
+    with pytest.raises(ToolError, match='The identifier is empty'):
+        await call_tool('igvf_catalog_get_entity', {'id': '', 'hint': 'gene'})
+
+    assert fake_catalog.requests == []
+
+
 async def test_api_error_is_a_tool_error(fake_catalog):
     fake_catalog.add('/variants', {'message': 'Internal error'}, status=500)
 

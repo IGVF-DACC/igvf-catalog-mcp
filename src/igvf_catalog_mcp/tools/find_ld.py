@@ -27,6 +27,7 @@ FIND_LD_TOOL = Tool(
             'variant_id': {
                 'type': 'string',
                 'description': "Variant identifier (e.g., 'rs12345', 'NC_000011.10:9083634:A:T')",
+                'minLength': 1,
             },
             'r2_threshold': {
                 'type': 'number',

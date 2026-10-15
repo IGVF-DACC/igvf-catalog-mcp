@@ -64,6 +64,7 @@ FIND_ASSOCIATIONS_TOOL = Tool(
             'entity_id': {
                 'type': 'string',
                 'description': "Starting entity ID (e.g., 'TP53', 'rs12345', 'ENSG00000141510')",
+                'minLength': 1,
             },
             'hint': {
                 'type': 'string',
