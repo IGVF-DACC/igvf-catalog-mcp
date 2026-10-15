@@ -14,7 +14,7 @@ GET_ENTITY_TOOL = Tool(
     name='igvf_catalog_get_entity',
     description=(
         'Look up any biological entity by ID with automatic type detection. '
-        'Supports genes (BRCA1, ENSG00000139618), variants (rs12345, NC_000017.11:43044295:G:A), '
+        'Supports genes (BRCA1, HLA-A, ENSG00000139618), variants (rs12345, NC_000017.11:43044295:G:A), '
         'proteins (ENSP00000493376, P49711), transcripts (ENST00000443707), '
         'diseases (Orphanet_586, MONDO_0008199), drugs (PA448497), '
         'complexes (CPX-9), and more. '

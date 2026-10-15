@@ -92,8 +92,13 @@ ENTITY_MAX_LIMITS: dict[str, int] = {
 # Default page size of the IGVF Catalog API
 API_PAGE_SIZE = 25
 
-# Gene symbol format; some symbols (e.g. P2RY12, B3GAT1) are also valid UniProt accessions
-GENE_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
+# Gene symbol format: alphanumeric parts separated by hyphens (e.g. BRCA1, C1orf112, HLA-DRB1, ZNF33A-AS1), up to the
+# length of the catalog's longest symbols (readthrough genes such as ARHGAP27P1-BPTFP1-KPNA2P3)
+GENE_SYMBOL = r'^(?=.{2,25}$)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$'
+
+# Gene symbols that can also fit other ID patterns: some symbols (e.g. P2RY12, B3GAT1) are also valid UniProt
+# accessions, others (RS1, CA1) rsIDs or CA IDs. No catalog symbol with a hyphen or more than 10 characters fits one.
+ID_SHAPED_SYMBOL = r'^[A-Z][A-Z0-9]{1,9}$'
 
 # Generic ontology term ID: a prefix of letters, _ or :, and a local ID containing a digit (e.g. NCIT_C27153)
 ONTOLOGY_TERM = r'^([A-Z]+)[_:]([A-Z0-9]*\d[A-Z0-9]*)$'
@@ -265,9 +270,9 @@ class IDParser:
             if hinted_type is None:
                 raise ValueError(f"Unknown hint: '{hint}'. Valid hints: {', '.join(HINT_TYPES)}")
             for pattern, entity_type, param_name in cls.PATTERNS:
-                if entity_type == hinted_type and re.match(pattern, identifier, re.IGNORECASE):
+                if entity_type == hinted_type and param_name != 'name' and re.match(pattern, identifier, re.IGNORECASE):
                     return entity_type, param_name  # type: ignore
-            if not re.match(GENE_SYMBOL, identifier, re.IGNORECASE):
+            if not re.match(ID_SHAPED_SYMBOL, identifier, re.IGNORECASE):
                 for pattern, entity_type, param_name in cls.PATTERNS:
                     if param_name != 'name' and re.match(pattern, identifier, re.IGNORECASE):
                         expected = 'name' if hinted_type in NAME_PARAMS else 'ID'
@@ -298,9 +303,10 @@ class IDParser:
         Detect the entity type of an identifier and normalize it for API queries.
 
         Gene symbols only match genes whose symbol equals them case-insensitively, so they are looked up
-        across all pages and the exact matches are returned. Without a hint, an identifier that fits both
-        another ID pattern and the gene symbol pattern (e.g. RS1, CA1 or P2RY12) is a gene if a gene with
-        exactly that symbol exists. Either check costs one gene name lookup.
+        across all pages and the exact matches are returned, with the symbol in the catalog's case (e.g.
+        C1orf112). Without a hint, an identifier that fits both another ID pattern and ID_SHAPED_SYMBOL (e.g.
+        RS1, CA1 or P2RY12) is a gene if a gene with exactly that symbol exists. Either check costs one gene
+        name lookup.
 
         Args:
             identifier: The ID string to parse
@@ -316,10 +322,12 @@ class IDParser:
         normalized_id = cls.normalize_identifier(identifier, entity_type, param_name)
 
         is_symbol = (entity_type, param_name) == ('gene', 'name')
-        ambiguous = hint is None and not is_symbol and re.match(GENE_SYMBOL, identifier.strip(), re.IGNORECASE)
+        ambiguous = hint is None and not is_symbol and re.match(ID_SHAPED_SYMBOL, identifier.strip(), re.IGNORECASE)
         if is_symbol or ambiguous:
             symbol = identifier.strip().upper()
             matches, near_matches = await cls.lookup_name('gene', symbol)
+            if matches:
+                symbol = matches[0].get('name') or symbol
             if is_symbol or matches:
                 return Identification('gene', 'name', symbol, matches, near_matches)
 

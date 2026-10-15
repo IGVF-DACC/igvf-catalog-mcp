@@ -75,6 +75,27 @@ async def test_get_entity_gene_symbol_shaped_like_variant_id(fake_catalog, symbo
     assert fake_catalog.params_for('/variants') == []
 
 
+async def test_get_entity_hyphenated_gene_symbol(fake_catalog):
+    genes = [{'_id': 'ENSG00000206503', 'name': 'HLA-A', 'chr': 'chr6'}]
+    fake_catalog.add('/genes', genes)
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'HLA-A'}))
+
+    assert data['entity_type'] == 'gene'
+    assert [entity['_id'] for entity in data['entities']] == ['ENSG00000206503']
+
+
+@pytest.mark.parametrize(('identifier', 'path'), [('CPX-9', '/complexes'), ('R-HSA-164843', '/pathways')])
+async def test_get_entity_hyphenated_ids_do_not_look_up_genes(fake_catalog, identifier, path):
+    fake_catalog.add(path, [{'_id': identifier, 'name': 'x'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': identifier}))
+
+    assert data['entities'][0]['_id'] == identifier
+    assert fake_catalog.params_for('/genes') == []
+    assert len(fake_catalog.requests) == 1
+
+
 async def test_get_entity_variant_id_without_matching_gene(fake_catalog, sample_variant_data):
     fake_catalog.add('/variants', [sample_variant_data])
 
@@ -435,6 +456,20 @@ async def test_find_associations_gene_symbol_shaped_like_ca_id(fake_catalog):
     assert data['num_associations'] == 1
     assert fake_catalog.params_for('/genes') == [{'name': 'CA2', 'limit': '500', 'page': '0'}]
     assert fake_catalog.params_for('/genes/diseases') == [{'gene_id': 'ENSG00000104267', 'page': '0', 'limit': '25'}]
+
+
+async def test_find_associations_hyphenated_gene_symbol(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000198888', 'name': 'MT-ND1'}])
+    fake_catalog.add('/genes/diseases', [{'disease': 'ontology_terms/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'mt-nd1', 'relationship': 'genetic'})
+    )
+
+    assert data['entity_id'] == 'MT-ND1'
+    assert data['resolved_entities'] == [{'id': 'ENSG00000198888', 'name': 'MT-ND1'}]
+    assert data['num_associations'] == 1
+    assert fake_catalog.params_for('/genes/diseases') == [{'gene_id': 'ENSG00000198888', 'page': '0', 'limit': '25'}]
 
 
 async def test_find_associations_drug_name_resolved_to_id(fake_catalog):
@@ -964,6 +999,15 @@ async def test_resolve_id_gene(fake_catalog, sample_gene_data):
     assert data['identifiers']['gene_id'] == 'ENSG00000139618'
     assert data['identifiers']['synonyms'] == ['FANCD1', 'BRCC2']
     assert fake_catalog.params_for('/genes') == [{'hgnc_id': 'HGNC:1101', 'page': '0'}]
+
+
+async def test_resolve_id_hyphenated_gene_symbol(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSG00000206503', 'name': 'HLA-A', 'chr': 'chr6'}])
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'HLA-A'}))
+
+    assert data['entity_type'] == 'gene'
+    assert data['identifiers']['gene_id'] == 'ENSG00000206503'
 
 
 async def test_resolve_id_ontology_term(fake_catalog):
