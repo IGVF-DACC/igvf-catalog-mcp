@@ -152,11 +152,23 @@ def test_edge_enum_values_match_spec():
 
     for endpoint_key, config in EDGE_ENDPOINTS.items():
         spec_params = {p['name']: p.get('schema', {}) for p in spec['paths'][config['path']]['get']['parameters']}
+        accepted = method_params(config['client_method'])
         for filter_name, allowed_key in [('source', 'sources'), ('method', 'methods'), ('label', 'labels')]:
-            if filter_name in spec_params and allowed_key in config:
-                spec_values = set(spec_params[filter_name].get('enum', []))
-                unknown = set(config[allowed_key]) - spec_values
-                assert not unknown, f'{endpoint_key}.{allowed_key}: {sorted(unknown)} not in spec enum'
+            name = f'{endpoint_key}.{allowed_key}'
+            if filter_name not in accepted:
+                # Sources describe the endpoint's data even where they cannot be filtered on
+                assert filter_name == 'source' or allowed_key not in config, f'{name}: {filter_name} not accepted'
+            elif 'enum' in spec_params[filter_name]:
+                spec_values = spec_params[filter_name]['enum']
+                assert allowed_key in config, f'{name} missing; spec enum: {spec_values}'
+                assert len(config[allowed_key]) == len(set(config[allowed_key])), f'{name} has duplicates'
+                unknown = set(config[allowed_key]) - set(spec_values)
+                missing = set(spec_values) - set(config[allowed_key])
+                assert not unknown, f'{name}: {sorted(unknown)} not in spec enum'
+                assert not missing, f'{name}: spec enum values {sorted(missing)} missing'
+            else:
+                # Without an enum the value is passed through, so a list would reject valid values
+                assert allowed_key not in config, f'{name}: {filter_name} has no enum in the spec'
         for filter_name, kind in config.get('filters', {}).items():
             if kind == 'enum':
                 assert 'enum' in spec_params[filter_name], f'{endpoint_key}.{filter_name} is not an enum in the spec'

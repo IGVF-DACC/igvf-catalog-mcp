@@ -74,9 +74,18 @@ FIND_ASSOCIATIONS_TOOL = Tool(
                     'biological_context': {'type': 'string', 'description': 'Tissue or cell type'},
                     'method': {
                         'type': 'string',
-                        'description': "Experimental method (e.g., 'eQTL', 'CRISPR screen', 'ENCODE-rE2G', 'GWAS')",
+                        'description': (
+                            "Experimental method (e.g., 'eQTL', 'CRISPR screen', 'ENCODE-rE2G', 'GWAS', 'COXPRESdb'); "
+                            "for protein-protein interactions the interaction type (e.g. 'direct interaction')"
+                        ),
                     },
-                    'label': {'type': 'string', 'description': "Edge label/type (e.g., 'eQTL', 'GWAS')"},
+                    'label': {
+                        'type': 'string',
+                        'description': (
+                            "Edge label/type (e.g., 'eQTL', 'GWAS'); for protein-protein interactions the detection "
+                            "method (e.g. 'two hybrid')"
+                        ),
+                    },
                     'score': {
                         'type': 'number',
                         'description': 'Minimum score (e.g. E2G prediction score, for gene-genomic element queries)',
@@ -137,7 +146,8 @@ RESOLVED_EDGE_PARAMS: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
-# Filters whose value must be in a list of the endpoint configuration: filter name -> configuration key
+# Filters whose value must be in a list of the endpoint configuration, where it has one (the API enum): filter name ->
+# configuration key
 VALUE_LIST_FILTERS: dict[str, str] = {'source': 'sources', 'method': 'methods', 'label': 'labels'}
 
 # Range filters for which a plain number is a minimum
@@ -218,11 +228,11 @@ def build_query_params(
             continue
 
         if filter_name in VALUE_LIST_FILTERS:
-            # Source, method and label values must be one of the endpoint's values
+            # Source, method and label values must be one of the endpoint's values, if the API has a list of them
             allowed = edge_config.get(VALUE_LIST_FILTERS[filter_name], [])
-            if filter_name not in accepted_params or not allowed:
+            if filter_name not in accepted_params:
                 not_applied[filter_name] = NOT_SUPPORTED
-            elif filter_value not in allowed:
+            elif allowed and filter_value not in allowed:
                 not_applied[filter_name] = f"invalid value; valid: {', '.join(allowed)}"
             else:
                 params[filter_name] = filter_value

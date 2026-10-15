@@ -412,6 +412,55 @@ async def test_find_associations_score_filter_with_operator(fake_catalog):
     assert fake_catalog.params_for('/genes/genomic-elements')[0]['score'] == 'gt:0.7'
 
 
+async def test_find_associations_gene_method_filter(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'ENSG00000012048', 'relationship': 'physical', 'filters': {'method': 'COXPRESdb'}},
+        )
+    )
+
+    metadata = data['query_metadata'][0]
+    assert metadata['params_used']['method'] == 'COXPRESdb'
+    assert 'filters_not_applied' not in metadata
+    assert fake_catalog.params_for('/genes/genes')[0]['method'] == 'COXPRESdb'
+
+
+async def test_find_associations_protein_method_and_label_filters(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {
+                'entity_id': 'P49711',
+                'relationship': 'physical',
+                'filters': {'method': 'direct interaction', 'label': 'two hybrid'},
+            },
+        )
+    )
+
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert 'filters_not_applied' not in metadata['proteins_proteins']
+    params = fake_catalog.params_for('/proteins/proteins')[0]
+    assert (params['method'], params['label']) == ('direct interaction', 'two hybrid')
+    assert metadata['proteins_complexes']['filters_not_applied'] == {
+        'method': 'not supported by this endpoint',
+        'label': 'not supported by this endpoint',
+    }
+
+
+async def test_find_associations_invalid_method_value(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'ENSG00000012048', 'relationship': 'physical', 'filters': {'method': 'coexpression'}},
+        )
+    )
+
+    reason = data['query_metadata'][0]['filters_not_applied']['method']
+    assert reason.startswith('invalid value; valid: COXPRESdb, ')
+    assert 'method' not in fake_catalog.params_for('/genes/genes')[0]
+
+
 async def test_find_associations_gene_symbol(fake_catalog):
     fake_catalog.add('/genes', [{'_id': 'ENSG00000163874', 'name': 'ZC3H12A'}, {'_id': 'ENSG1', 'name': 'ZC3H12AB'}])
     fake_catalog.add('/genes/variants', [{'variant': 'variants/x'}])
@@ -1141,6 +1190,20 @@ async def test_list_sources_endpoint(fake_catalog):
     assert data['path'] == '/variants/genes'
     assert data['supports_verbose'] is True
     assert 'neg_log10_pvalue' in data['filters']
+
+
+@pytest.mark.parametrize(
+    ('endpoint', 'methods', 'labels'),
+    [
+        ('genes_genes', ['COXPRESdb', 'synthetic lethality (sensu BioGRID)'], ['co-expression']),
+        ('proteins_proteins', ['direct interaction', 'physical association'], ['two hybrid', 'pull down']),
+    ],
+)
+async def test_list_sources_lists_methods_and_labels(fake_catalog, endpoint, methods, labels):
+    data = response_json(await call_tool('igvf_catalog_list_sources', {'endpoint': endpoint}))
+
+    assert set(methods) <= set(data['methods'])
+    assert set(labels) <= set(data['labels'])
 
 
 async def test_list_sources_unknown_category(fake_catalog):

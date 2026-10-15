@@ -10,6 +10,7 @@ from igvf_catalog_mcp.services.edge_config import (
     get_sources_by_category,
     supports_verbose,
 )
+from igvf_catalog_mcp.tools.find_associations import build_query_params
 
 
 def test_all_endpoints_have_required_fields():
@@ -323,3 +324,13 @@ def test_proteins_variants_from_params():
     assert 'uniprot_full_name' in from_params
     assert 'full_name' not in from_params
     assert 'dbxrefs' in from_params
+
+
+def test_value_list_filter_without_enum_is_passed_through():
+    config = {**EDGE_ENDPOINTS['genes_genes']}
+    del config['methods']
+
+    params, not_applied = build_query_params('ENSG1', 'gene_id', config, {'method': 'anything'}, 25, False)
+
+    assert params['method'] == 'anything'
+    assert not not_applied
