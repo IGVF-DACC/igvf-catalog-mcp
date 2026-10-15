@@ -1,7 +1,11 @@
 """Genomic region parser with flexible format support."""
 
 import re
+from decimal import Decimal
 from typing import NamedTuple
+
+# Number part of a position: digits, optionally with commas between groups of three, and an optional decimal part
+POSITION_NUMBER = r'^(?=\.?\d)(\d+|\d{1,3}(,\d{3})+)?(\.\d*)?$'
 
 
 class GenomicRegion(NamedTuple):
@@ -18,6 +22,9 @@ class GenomicRegion(NamedTuple):
 
 class RegionParser:
     """Parse and normalize genomic region formats."""
+
+    # Value of each position suffix
+    MULTIPLIERS = {'K': 1_000, 'M': 1_000_000, 'G': 1_000_000_000}
 
     # Number of autosomes per organism; each organism also has chrX, chrY and chrM
     AUTOSOMES = {'Homo sapiens': 22, 'Mus musculus': 19}
@@ -139,6 +146,8 @@ class RegionParser:
         """
         Parse a position string, handling commas and K/M/G notation.
 
+        The value is computed exactly, so it must be a whole number of base pairs.
+
         Args:
             position_str: Position string (e.g., "1000000", "1,000,000", "1M", "1.5M")
 
@@ -146,33 +155,26 @@ class RegionParser:
             Position as integer
 
         Raises:
-            ValueError: If position format is invalid
+            ValueError: If position format is invalid or the position is not a whole number
         """
-        # Remove commas
-        position_str = position_str.replace(',', '')
+        number, multiplier = position_str, 1
+        suffix = position_str[-1:].upper()
+        if suffix in cls.MULTIPLIERS:
+            number, multiplier = position_str[:-1], cls.MULTIPLIERS[suffix]
 
-        # Check for K/M/G suffix
-        multiplier = 1
-        if position_str.upper().endswith('K'):
-            multiplier = 1000
-            position_str = position_str[:-1]
-        elif position_str.upper().endswith('M'):
-            multiplier = 1_000_000
-            position_str = position_str[:-1]
-        elif position_str.upper().endswith('G'):
-            multiplier = 1_000_000_000
-            position_str = position_str[:-1]
+        if not re.match(POSITION_NUMBER, number):
+            raise ValueError(
+                f"Invalid position format: '{position_str}'. Use digits, optionally with commas between groups of "
+                "three (e.g. '1,000,000'), or a number with a K, M or G suffix (e.g. '1.5M')"
+            )
 
-        try:
-            # Support decimal notation (e.g., 1.5M)
-            if '.' in position_str:
-                position = int(float(position_str) * multiplier)
-            else:
-                position = int(position_str) * multiplier
-        except ValueError:
-            raise ValueError(f"Invalid position format: '{position_str}'")
+        position = Decimal(number.replace(',', '')) * multiplier
+        if position != position.to_integral_value():
+            raise ValueError(
+                f"Invalid position: '{position_str}' is {position.normalize():f} bp, not a whole number of base pairs"
+            )
 
-        return position
+        return int(position)
 
     @classmethod
     def validate_region_size(cls, region: GenomicRegion, max_size: int) -> None:

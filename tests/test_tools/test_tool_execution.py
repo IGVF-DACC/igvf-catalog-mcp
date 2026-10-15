@@ -449,6 +449,32 @@ async def test_search_region_include_and_partial_error(fake_catalog):
     assert fake_catalog.params_for('/genomic-elements') == []
 
 
+async def test_search_region_decimal_positions_are_exact(fake_catalog):
+    data = response_json(
+        await call_tool('igvf_catalog_search_region', {'region': 'chrX:1M-1.001M', 'include': ['genes']})
+    )
+
+    assert data['region'] == 'chrX:1000000-1001000'
+    assert fake_catalog.params_for('/genes')[0]['region'] == 'chrX:1000000-1001000'
+
+
+@pytest.mark.parametrize(
+    ('region', 'message'),
+    [
+        (
+            'chr1:1.0000001M-2M',
+            "^ValueError: Invalid position: '1.0000001M' is 1000000.1 bp, not a whole number of base pairs$",
+        ),
+        ('chr1:1,5M-2M', r"^ValueError: Invalid position format: '1,5M'\. "),
+    ],
+)
+async def test_search_region_invalid_position(fake_catalog, region, message):
+    with pytest.raises(ToolError, match=message):
+        await call_tool('igvf_catalog_search_region', {'region': region})
+
+    assert fake_catalog.requests == []
+
+
 async def test_search_region_timeout_of_one_entity_type(fake_catalog, sample_gene_data):
     fake_catalog.add('/genes', [sample_gene_data])
     fake_catalog.add('/variants', TimeoutError())

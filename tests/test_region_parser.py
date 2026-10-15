@@ -1,5 +1,7 @@
 """Tests for region parser."""
 
+import re
+
 import pytest
 
 from igvf_catalog_mcp.services.region_parser import GenomicRegion, RegionParser
@@ -43,6 +45,61 @@ def test_parse_with_decimal_m():
     assert region.chromosome == 'chr1'
     assert region.start == 1500000
     assert region.end == 2500000
+
+
+@pytest.mark.parametrize('whole', [0, 1, 2, 9, 17, 49, 100, 248])
+def test_decimal_m_notation_is_exact(whole):
+    """Test that every a.bbbM position is the exact number of base pairs."""
+    expected = {f'{whole}.{thousandths:03d}M': whole * 1_000_000 + thousandths * 1_000 for thousandths in range(1000)}
+    assert {position: RegionParser._parse_position(position) for position in expected} == expected
+
+
+@pytest.mark.parametrize('whole', [0, 1, 9, 10, 999, 12345, 248956])
+def test_decimal_k_notation_is_exact(whole):
+    """Test that every a.bbK position is the exact number of base pairs."""
+    expected = {f'{whole}.{hundredths:02d}k': whole * 1_000 + hundredths * 10 for hundredths in range(100)}
+    assert {position: RegionParser._parse_position(position) for position in expected} == expected
+
+
+@pytest.mark.parametrize(
+    ('position', 'expected'),
+    [
+        ('1.001K', 1001),
+        ('1.000001M', 1000001),
+        ('0.000000001G', 1),
+        ('2.5G', 2_500_000_000),
+        ('.5M', 500_000),
+        ('1000.0', 1000),
+        ('1,000.5K', 1_000_500),
+        ('12,345,678', 12_345_678),
+    ],
+)
+def test_parse_position_exact(position, expected):
+    """Test that positions with suffixes, decimals and commas are exact."""
+    assert RegionParser._parse_position(position) == expected
+
+
+def test_parse_decimal_m_region_is_exact():
+    """Test that a decimal M end position is not rounded down."""
+    assert str(RegionParser.parse_region('chrX:1M-1.001M')) == 'chrX:1000000-1001000'
+
+
+@pytest.mark.parametrize(
+    ('position', 'bp'),
+    [('1.0000001M', '1000000.1'), ('1.5', '1.5'), ('0.0005K', '0.5'), ('1.0000000001G', '1000000000.1')],
+)
+def test_position_must_be_whole_number(position, bp):
+    """Test that a position that is not a whole number of base pairs raises ValueError."""
+    message = rf"^Invalid position: '{re.escape(position)}' is {re.escape(bp)} bp, not a whole number of base pairs$"
+    with pytest.raises(ValueError, match=message):
+        RegionParser.parse_region(f'chr1:{position}-2G')
+
+
+@pytest.mark.parametrize('position', ['1,5M', '1,00', '10,00,000', ',1000', '1000,', '.', '1..2', '1.2.3', ',M'])
+def test_invalid_position_format(position):
+    """Test that misplaced commas and points raise ValueError instead of being dropped."""
+    with pytest.raises(ValueError, match=rf"^Invalid position format: '{re.escape(position)}'\."):
+        RegionParser.parse_region(f'chr1:{position}-2G')
 
 
 def test_parse_with_k_notation():
