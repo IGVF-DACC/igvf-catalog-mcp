@@ -458,7 +458,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     {
                         'endpoint': endpoint_key,
                         'path': edge_config['path'],
-                        'error': str(e),
+                        'error': format_error(e),
                     }
                 )
 

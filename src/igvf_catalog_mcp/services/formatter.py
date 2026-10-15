@@ -1,6 +1,9 @@
 """Response formatting utilities."""
 
+import asyncio
 from typing import Any
+
+from .api_client import get_client
 
 
 class ToolError(Exception):
@@ -65,6 +68,11 @@ def format_error(error: Exception) -> str:
     """
     error_type = type(error).__name__
     error_msg = str(error)
+
+    if not error_msg:
+        if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
+            return f'{error_type}: the IGVF Catalog API did not respond within {get_client().timeout:g} s'
+        return error_type
 
     # Add helpful context for common errors
     if 'Invalid region format' in error_msg:

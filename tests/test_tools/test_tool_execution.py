@@ -9,6 +9,8 @@ from igvf_catalog_mcp.server import app, call_tool
 from igvf_catalog_mcp.services.formatter import ToolError
 
 BRCA1 = {'_id': 'ENSG00000012048', 'name': 'BRCA1'}
+BRCA1_REGULATORY = {'entity_id': 'ENSG00000012048', 'relationship': 'regulatory'}
+TIMEOUT_ERROR = 'TimeoutError: the IGVF Catalog API did not respond within 30 s'
 
 
 def response_json(result):
@@ -393,6 +395,15 @@ async def test_get_entity_api_error(fake_catalog):
     assert 'HTTP response headers' not in str(error.value)
 
 
+async def test_get_entity_timeout(fake_catalog):
+    fake_catalog.add('/genes', TimeoutError())
+
+    with pytest.raises(ToolError) as error:
+        await call_tool('igvf_catalog_get_entity', {'id': 'ENSG00000012048'})
+
+    assert str(error.value) == f'Error retrieving entity: {TIMEOUT_ERROR}'
+
+
 # search_region
 
 
@@ -432,7 +443,45 @@ async def test_search_region_include_and_partial_error(fake_catalog):
 
     assert set(data['results']) == {'genes', 'variants'}
     assert 'region too large' in data['results']['variants']['error']
+    assert data['results']['variants']['error'].startswith('BadRequestException: (400)')
+    assert 'HTTP response headers' not in data['results']['variants']['error']
     assert fake_catalog.params_for('/genomic-elements') == []
+
+
+async def test_search_region_timeout_of_one_entity_type(fake_catalog, sample_gene_data):
+    fake_catalog.add('/genes', [sample_gene_data])
+    fake_catalog.add('/variants', TimeoutError())
+
+    data = response_json(
+        await call_tool('igvf_catalog_search_region', {'region': 'chr1:1000-2000', 'include': ['genes', 'variants']})
+    )
+
+    assert data['results']['genes']['items'] == [sample_gene_data]
+    assert data['results']['variants'] == {'error': TIMEOUT_ERROR}
+    assert data['_pagination']['has_more'] is False
+    assert data['note'] == (
+        'The query failed for variants (see the error in results), '
+        'so _pagination.has_more covers only the other entity types.'
+    )
+
+
+async def test_search_region_without_failures_has_no_note(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_search_region', {'region': 'chr1:1000-2000'}))
+
+    assert 'note' not in data
+
+
+async def test_search_region_every_entity_type_failed(fake_catalog):
+    fake_catalog.add('/genes', TimeoutError())
+    fake_catalog.add('/variants', {'message': 'region too large'}, status=400)
+
+    with pytest.raises(ToolError) as error:
+        await call_tool('igvf_catalog_search_region', {'region': 'chr1:1000-2000', 'include': ['genes', 'variants']})
+
+    message = str(error.value)
+    assert message.startswith(f'Error searching region: genes: {TIMEOUT_ERROR}; variants: BadRequestException: (400)')
+    assert 'region too large' in message
+    assert 'HTTP response headers' not in message
 
 
 # find_associations
@@ -1129,8 +1178,49 @@ async def test_find_associations_endpoint_error_is_reported(fake_catalog):
     with pytest.raises(ToolError) as error:
         await call_tool('igvf_catalog_find_associations', {'entity_id': 'ENSG00000163874', 'relationship': 'physical'})
 
-    assert str(error.value).startswith('Error finding associations: genes_genes: (500)')
+    assert str(error.value).startswith('Error finding associations: genes_genes: ServiceException: (500)')
     assert 'boom' in str(error.value)
+    assert 'HTTP response headers' not in str(error.value)
+
+
+async def test_find_associations_endpoint_http_error_body_is_passed_through(fake_catalog):
+    body = {'message': "Invalid ancestry: 'AMR'. Valid values: AFR, EAS, EUR, SAS"}
+    fake_catalog.add('/variants/variant-ld', body, status=400)
+
+    with pytest.raises(ToolError) as error:
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'rs7903146', 'relationship': 'ld', 'filters': {'ancestry': 'AMR'}},
+        )
+
+    message = str(error.value)
+    assert message.startswith('Error finding associations: variants_variants: BadRequestException: (400)')
+    assert json.dumps(body) in message
+    assert 'HTTP response headers' not in message
+
+
+async def test_find_associations_every_endpoint_timed_out(fake_catalog):
+    fake_catalog.add('/genes/variants', TimeoutError())
+    fake_catalog.add('/genes/genomic-elements', TimeoutError())
+
+    with pytest.raises(ToolError) as error:
+        await call_tool('igvf_catalog_find_associations', BRCA1_REGULATORY)
+
+    assert str(error.value) == (
+        f'Error finding associations: genes_variants: {TIMEOUT_ERROR}; genes_genomic_elements: {TIMEOUT_ERROR}'
+    )
+
+
+async def test_find_associations_partial_endpoint_timeout_is_reported(fake_catalog):
+    fake_catalog.add('/genes/variants', TimeoutError())
+    fake_catalog.add('/genes/genomic-elements', [{'genomic_element': 'genomic_elements/x'}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', BRCA1_REGULATORY)
+    )
+
+    assert data['num_associations'] == 1
+    assert data['query_metadata'][0]['error'] == TIMEOUT_ERROR
 
 
 async def test_find_associations_partial_endpoint_error_is_reported(fake_catalog):
@@ -1184,6 +1274,15 @@ async def test_find_ld(fake_catalog):
             'limit': '3',
         }
     ]
+
+
+async def test_find_ld_timeout(fake_catalog):
+    fake_catalog.add('/variants/variant-ld', TimeoutError())
+
+    with pytest.raises(ToolError) as error:
+        await call_tool('igvf_catalog_find_ld', {'variant_id': 'rs58542926'})
+
+    assert str(error.value) == f'Error finding LD variants: {TIMEOUT_ERROR}'
 
 
 async def test_find_ld_no_results(fake_catalog):
@@ -1629,6 +1728,19 @@ async def test_api_error_is_a_tool_error(fake_catalog):
 
     assert result.isError is True
     assert 'Internal error' in result.content[0].text
+
+
+async def test_search_region_failure_of_every_entity_type_is_a_tool_error(fake_catalog):
+    for path in ['/genes', '/variants', '/genomic-elements']:
+        fake_catalog.add(path, TimeoutError())
+
+    result = await call_tool_request('igvf_catalog_search_region', {'region': 'chr2:1-240000000'})
+
+    assert result.isError is True
+    assert result.content[0].text == (
+        f'Error searching region: genes: {TIMEOUT_ERROR}; variants: {TIMEOUT_ERROR}; '
+        f'regulatory_elements: {TIMEOUT_ERROR}'
+    )
 
 
 async def test_not_found_is_not_a_tool_error(fake_catalog):
