@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **Python 3.11+**: support for Python 3.10 is dropped (end of life), in line with `igvf-catalog-async-client`, which now requires 3.11.
+
 ### Fixed
 - **Server version**: the server reported the version of the `mcp` SDK (e.g. 1.30.0) in its MCP `serverInfo`, because `Server` was created without a version. It now reports the package version from `src/igvf_catalog_mcp/__init__.py`.
 
