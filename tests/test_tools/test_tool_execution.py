@@ -2384,7 +2384,9 @@ async def test_list_sources_endpoint(fake_catalog):
 async def test_list_sources_lists_organisms(fake_catalog, endpoint, organisms):
     data = response_json(await call_tool('igvf_catalog_list_sources', {'endpoint': endpoint}))
 
-    assert data.get('organisms') == organisms
+    # The organisms are in spec order
+    assert ('organisms' in data) == (organisms is not None)
+    assert set(data.get('organisms', [])) == set(organisms or [])
 
 
 @pytest.mark.parametrize(

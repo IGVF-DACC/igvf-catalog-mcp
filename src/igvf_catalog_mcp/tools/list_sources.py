@@ -142,7 +142,7 @@ def get_endpoint_details(endpoint_key: str) -> dict[str, Any]:
     if 'organisms' in config:
         details['organisms'] = config['organisms']
 
-    details['max_limit'] = config.get('max_limit', 100)
+    details['max_limit'] = config['max_limit']
     details['supports_verbose'] = supports_verbose(config)
 
     return details

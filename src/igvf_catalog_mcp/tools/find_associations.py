@@ -280,7 +280,7 @@ def build_query_params(
     accepted_params = method_params(edge_config['client_method'])
     params = {
         param_name: entity_id,
-        'limit': min(limit, edge_config.get('max_limit', 500)),
+        'limit': min(limit, edge_config['max_limit']),
         'page': page,
     }
     not_applied: dict[str, str] = {}
@@ -512,7 +512,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                 # Query the endpoint
                 associations = []
                 has_more = False
-                effective_limit = min(limit, edge_config.get('max_limit', 500))
+                effective_limit = min(limit, edge_config['max_limit'])
                 for lookup_id in lookup_ids:
                     rows = await client.call(edge_config['client_method'], **{**params, endpoint_param_name: lookup_id})
                     has_more = has_more or len(rows) >= effective_limit
