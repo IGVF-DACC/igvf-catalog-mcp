@@ -139,6 +139,9 @@ def get_endpoint_details(endpoint_key: str) -> dict[str, Any]:
     if 'filters' in config:
         details['filters'] = config['filters']
 
+    if 'organisms' in config:
+        details['organisms'] = config['organisms']
+
     details['max_limit'] = config.get('max_limit', 100)
     details['supports_verbose'] = supports_verbose(config)
 

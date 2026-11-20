@@ -83,6 +83,13 @@ def test_build_query_params_emits_accepted_kwargs(endpoint_key):
     assert not set(config.get('filters', {})) & set(not_applied)
 
 
+@pytest.mark.parametrize('endpoint_key', sorted(EDGE_ENDPOINTS))
+def test_edge_organisms_match_client(endpoint_key):
+    config = EDGE_ENDPOINTS[endpoint_key]
+    assert ('organisms' in config) == ('organism' in method_params(config['client_method']))
+    assert set(config.get('organisms', ['Homo sapiens'])) <= {'Homo sapiens', 'Mus musculus'}
+
+
 def test_edge_param_aliases_are_used():
     from_params = {p for config in EDGE_ENDPOINTS.values() for p in config.get('from_params', [])}
     for aliases in EDGE_PARAM_ALIASES.values():
@@ -166,7 +173,9 @@ def test_edge_enum_values_match_spec():
     for endpoint_key, config in EDGE_ENDPOINTS.items():
         spec_params = {p['name']: p.get('schema', {}) for p in spec['paths'][config['path']]['get']['parameters']}
         accepted = method_params(config['client_method'])
-        for filter_name, allowed_key in [('source', 'sources'), ('method', 'methods'), ('label', 'labels')]:
+        for filter_name, allowed_key in [
+            ('source', 'sources'), ('method', 'methods'), ('label', 'labels'), ('organism', 'organisms')
+        ]:
             name = f'{endpoint_key}.{allowed_key}'
             if filter_name not in accepted:
                 # Sources describe the endpoint's data even where they cannot be filtered on

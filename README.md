@@ -85,7 +85,13 @@ Discover relationships between entities.
 ```json
 {"entity_id": "TP53", "relationship": "regulatory"}
 {"entity_id": "lupus", "relationship": "genetic", "hint": "disease"}
+{"entity_id": "Q9DC51", "relationship": "physical"}
 ```
+
+`find_associations` takes the same optional `organism` as `get_entity`, with the same handling of mouse Ensembl IDs
+and the same mouse retry for UniProt accessions and protein names. Only physical (protein-protein, gene-gene),
+transcription and gene-genomic element regulatory relationships have Mus musculus data. For a mouse entity,
+human-only endpoints are skipped and listed in `query_metadata`, and the response has a top-level `organism`.
 
 ### 4. `igvf_catalog_find_ld`
 Find variants in linkage disequilibrium with a query variant.

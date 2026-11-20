@@ -37,7 +37,12 @@ class EdgeEndpointConfig(TypedDict, total=False):
     methods: list[str]  # Valid method values
     filters: dict[str, str]  # Filter name -> type (range, string, enum)
     max_limit: int  # Maximum page size
+    organisms: list[str]  # Values of the organism parameter, where the endpoint has one
 
+
+# Organisms an endpoint has data for: the values of its organism parameter (Homo sapiens by default)
+HUMAN_ONLY = ['Homo sapiens']
+HUMAN_AND_MOUSE = ['Homo sapiens', 'Mus musculus']
 
 GENE_PARAMS = ['gene_id', 'gene_name', 'hgnc_id', 'synonym']
 PROTEIN_PARAMS = ['protein_id', 'protein_name', 'uniprot_name', 'uniprot_full_name', 'dbxrefs']
@@ -393,6 +398,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'labels': QTL_LABELS,
         'methods': QTL_METHODS,
         'filters': QTL_FILTERS,
+        'organisms': HUMAN_ONLY,
         'max_limit': 500,
     },
     'genes_variants': {
@@ -405,6 +411,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'labels': QTL_LABELS,
         'methods': QTL_METHODS,
         'filters': QTL_FILTERS,
+        'organisms': HUMAN_ONLY,
         'max_limit': 500,
     },
     # Variant-Protein relationships (pQTL, allele-specific binding)
@@ -420,6 +427,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'filters': {
             'files_fileset': 'string',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 100,
     },
     'proteins_variants': {
@@ -434,6 +442,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'filters': {
             'files_fileset': 'string',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 100,
     },
     # Variant-Phenotype relationships (GWAS)
@@ -451,6 +460,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
             'phenotype_id': 'string',
             'files_fileset': 'string',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 100,
     },
     'phenotypes_variants': {
@@ -466,6 +476,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
             'neg_log10_pvalue': 'range',
             'files_fileset': 'string',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 100,
     },
     # Variant-Drug relationships (PharmGKB)
@@ -480,6 +491,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
             'pmid': 'string',
             'phenotype_categories': 'enum',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 100,
     },
     'drugs_variants': {
@@ -493,6 +505,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
             'pmid': 'string',
             'phenotype_categories': 'enum',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 100,
     },
     # Variant-Disease relationships (ClinGen)
@@ -507,6 +520,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
             'assertion': 'enum',
             'pmid': 'string',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 100,
     },
     # Gene-Disease relationships (Orphanet, ClinGen, GenCC)
@@ -518,6 +532,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'from_params': GENE_PARAMS,
         'sources': ['GenCC', 'Orphanet', 'ClinGen'],
         'filters': {},
+        'organisms': HUMAN_ONLY,
         'max_limit': 25,
     },
     'diseases_genes': {
@@ -528,6 +543,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'from_params': ['disease_id', 'disease_name'],
         'sources': ['GenCC', 'Orphanet'],
         'filters': {},
+        'organisms': HUMAN_ONLY,
         'max_limit': 100,
     },
     # Gene-Gene relationships (coexpression, interactions)
@@ -544,6 +560,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
             'z_score': 'range',
             'interaction_type': 'enum',
         },
+        'organisms': HUMAN_AND_MOUSE,
         'max_limit': 100,
     },
     # Protein-Protein interactions
@@ -559,6 +576,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'filters': {
             'interaction_type': 'enum',
         },
+        'organisms': HUMAN_AND_MOUSE,
         'max_limit': 250,
     },
     # Complex-Protein relationships
@@ -570,6 +588,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'from_params': ['complex_id', 'complex_name', 'description'],
         'sources': ['EBI Complex Portal'],
         'filters': {},
+        'organisms': HUMAN_ONLY,
         'max_limit': 50,
     },
     'proteins_complexes': {
@@ -582,6 +601,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'from_params': [p for p in PROTEIN_PARAMS if p != 'dbxrefs'],
         'sources': ['EBI Complex Portal'],
         'filters': {},
+        'organisms': HUMAN_ONLY,
         'max_limit': 100,
     },
     # Gene-Pathway relationships
@@ -593,6 +613,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'from_params': GENE_PARAMS,
         'sources': ['Reactome'],
         'filters': {},
+        'organisms': HUMAN_ONLY,
         'max_limit': 500,
     },
     # Gene-Transcript relationships
@@ -604,6 +625,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'from_params': GENE_PARAMS,
         'sources': ['GENCODE'],
         'filters': {},
+        'organisms': HUMAN_AND_MOUSE,
         'max_limit': 100,
     },
     'transcripts_genes': {
@@ -614,6 +636,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'from_params': ['transcript_id', 'region'],
         'sources': ['GENCODE'],
         'filters': {},
+        'organisms': HUMAN_AND_MOUSE,
         'max_limit': 100,
     },
     # Transcript-Protein relationships
@@ -625,6 +648,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'from_params': ['transcript_id', 'transcript_type', 'region'],
         'sources': ['GENCODE'],
         'filters': {},
+        'organisms': HUMAN_AND_MOUSE,
         'max_limit': 100,
     },
     'proteins_transcripts': {
@@ -635,6 +659,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'from_params': PROTEIN_PARAMS,
         'sources': ['GENCODE'],
         'filters': {},
+        'organisms': HUMAN_AND_MOUSE,
         'max_limit': 100,
     },
     # Motif-Protein relationships
@@ -649,6 +674,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'filters': {
             'files_fileset': 'string',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 1000,
     },
     'proteins_motifs': {
@@ -662,6 +688,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'filters': {
             'files_fileset': 'string',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 1000,
     },
     # Variant-Variant relationships (Linkage Disequilibrium)
@@ -677,6 +704,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
             'd_prime': 'range',
             'ancestry': 'enum',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 500,
     },
     # Variant-Coding Variant relationships
@@ -733,6 +761,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
             'score': 'range',
             'files_fileset': 'string',
         },
+        'organisms': HUMAN_AND_MOUSE,
         'max_limit': 500,
     },
     # Gene-Genomic Element relationships (E2G predictions, CRISPR screens), queried from the gene side
@@ -751,6 +780,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
             'score': 'range',
             'files_fileset': 'string',
         },
+        'organisms': HUMAN_AND_MOUSE,
         'max_limit': 500,
     },
     # Genomic Element-Biosample relationships (MPRA)
@@ -779,6 +809,7 @@ EDGE_ENDPOINTS: dict[str, EdgeEndpointConfig] = {
         'filters': {
             'files_fileset': 'string',
         },
+        'organisms': HUMAN_ONLY,
         'max_limit': 50,
     },
     # GO term annotations
