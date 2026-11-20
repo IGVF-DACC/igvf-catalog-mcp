@@ -4,7 +4,6 @@ import asyncio
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent
 
 from . import __version__
 from .resources.schemas import ALL_RESOURCES, get_resource_content
@@ -61,10 +60,9 @@ async def list_resources():
 
 
 @app.read_resource()
-async def read_resource(uri: str):
-    """Read a resource by URI."""
-    content = await get_resource_content(uri)
-    return [TextContent(type='text', text=content)]
+async def read_resource(uri):
+    """Read a resource by URI (the SDK passes a pydantic AnyUrl, not a str)."""
+    return [await get_resource_content(uri)]
 
 
 async def main():

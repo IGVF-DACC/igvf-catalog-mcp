@@ -1,5 +1,6 @@
 """MCP resources for entity schemas."""
 
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 # Gene schema
@@ -193,22 +194,6 @@ All these work:
 """
 
 
-async def get_resource_content(uri: str) -> str:
-    """Get the content for a resource URI."""
-    resource_map = {
-        'igvf://schemas/gene': GENE_SCHEMA_CONTENT,
-        'igvf://schemas/variant': VARIANT_SCHEMA_CONTENT,
-        'igvf://guide/identifiers': IDENTIFIER_GUIDE_CONTENT,
-        'igvf://examples/queries': EXAMPLE_QUERIES_CONTENT,
-    }
-
-    content = resource_map.get(uri)
-    if content is None:
-        raise ValueError(f'Unknown resource URI: {uri}')
-
-    return content.strip()
-
-
 # All resources
 ALL_RESOURCES = [
     GENE_SCHEMA,
@@ -216,3 +201,24 @@ ALL_RESOURCES = [
     IDENTIFIER_GUIDE,
     EXAMPLE_QUERIES,
 ]
+
+_RESOURCE_CONTENT = {
+    str(GENE_SCHEMA.uri): GENE_SCHEMA_CONTENT,
+    str(VARIANT_SCHEMA.uri): VARIANT_SCHEMA_CONTENT,
+    str(IDENTIFIER_GUIDE.uri): IDENTIFIER_GUIDE_CONTENT,
+    str(EXAMPLE_QUERIES.uri): EXAMPLE_QUERIES_CONTENT,
+}
+_RESOURCES_BY_URI = {str(resource.uri): resource for resource in ALL_RESOURCES}
+
+
+async def get_resource_content(uri: object) -> ReadResourceContents:
+    """Get the content and MIME type for a resource URI.
+
+    The MCP SDK passes the URI as a pydantic ``AnyUrl``, so it is compared as a string.
+    """
+    key = str(uri)
+    resource = _RESOURCES_BY_URI.get(key)
+    if resource is None:
+        raise ValueError(f'Unknown resource URI: {key}')
+
+    return ReadResourceContents(content=_RESOURCE_CONTENT[key].strip(), mime_type=resource.mimeType)
