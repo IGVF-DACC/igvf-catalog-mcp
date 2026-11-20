@@ -386,6 +386,14 @@ async def test_get_entity_organism_is_not_sent_for_other_types(fake_catalog):
     assert fake_catalog.params_for('/drugs') == [{'drug_id': 'PA448497', 'page': '0', 'limit': '25'}]
 
 
+async def test_get_entity_drug_limit_is_capped_at_the_spec_maximum(fake_catalog):
+    # /drugs allows up to 1000 per page (from the spec); it was once capped at 100 by hand
+    await call_tool('igvf_catalog_get_entity', {'id': 'PA448497', 'limit': 1000})
+    await call_tool('igvf_catalog_get_entity', {'id': 'PA448497', 'limit': 5000})
+
+    assert [params['limit'] for params in fake_catalog.params_for('/drugs')] == ['1000', '1000']
+
+
 async def test_get_entity_organism_contradicting_mouse_id(fake_catalog):
     with pytest.raises(ToolError, match='is a Mus musculus Ensembl ID, not a Homo sapiens one'):
         await call_tool('igvf_catalog_get_entity', {'id': 'ENSMUSG00000000001', 'organism': 'Homo sapiens'})
@@ -1094,7 +1102,7 @@ async def test_find_associations_drug_name_resolved_to_id(fake_catalog):
     )
 
     assert data['resolved_entities'] == [{'id': 'PA451906', 'name': 'warfarin'}]
-    assert fake_catalog.params_for('/drugs') == [{'name': 'Warfarin', 'limit': '100', 'page': '0'}]
+    assert fake_catalog.params_for('/drugs') == [{'name': 'Warfarin', 'limit': '1000', 'page': '0'}]
     assert fake_catalog.params_for('/drugs/variants') == [{'drug_id': 'PA451906', 'page': '0', 'limit': '25'}]
 
 
