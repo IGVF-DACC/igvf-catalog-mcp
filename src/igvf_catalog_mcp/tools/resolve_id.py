@@ -8,7 +8,18 @@ from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client
 from ..services.formatter import ToolError, format_error
-from ..services.id_parser import TYPE_LABELS, IDParser, name_not_found
+from ..services.id_parser import (
+    DEFAULT_ORGANISM,
+    MOUSE,
+    ORGANISMS,
+    IDParser,
+    mouse_fallback,
+    mouse_fallback_note,
+    name_not_found,
+    not_found,
+    organism_params,
+)
+from .get_entity import ORGANISM_DESCRIPTION
 
 # Tool definition
 RESOLVE_ID_TOOL = Tool(
@@ -30,6 +41,11 @@ RESOLVE_ID_TOOL = Tool(
             'target_type': {
                 'type': 'string',
                 'description': 'Preferred output format (optional)',
+            },
+            'organism': {
+                'type': 'string',
+                'description': ORGANISM_DESCRIPTION,
+                'enum': ORGANISMS,
             },
         },
         'required': ['id'],
@@ -198,36 +214,43 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
     Execute the resolve_id tool.
 
     Args:
-        arguments: Tool arguments with 'id' and optional 'target_type'
+        arguments: Tool arguments with 'id' and optional 'target_type' and 'organism'
 
     Returns:
         List of TextContent with all identifiers for the entity
     """
     try:
         entity_id = arguments['id']
+        organism = IDParser.lookup_organism(entity_id, arguments.get('organism'))
 
         # Detect entity type
-        entity_type, param_name, normalized_id, matches, near_matches = await IDParser.identify(entity_id)
+        entity_type, param_name, normalized_id, matches, near_matches = await IDParser.identify(
+            entity_id, organism=organism
+        )
+        searched_mouse = False
 
         # Query the API to get the full entity, and every allele of a variant or isoform of a protein
         if matches is not None:
             if not matches:
-                return [TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches))]
+                organisms = [organism] if organism else None
+                return [
+                    TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches, organisms))
+                ]
             entities = matches
         elif entity_type in ['variant', 'protein']:
-            entities = await IDParser.lookup_all(entity_type, param_name, normalized_id)
+            entities = await IDParser.lookup_all(entity_type, param_name, normalized_id, organism)
+            if not entities and mouse_fallback(entity_type, param_name, organism):
+                entities = await IDParser.lookup_all(entity_type, param_name, normalized_id, MOUSE)
+                searched_mouse = True
         else:
             entities = await get_client().call(
-                IDParser.get_client_method(entity_type), **{param_name: normalized_id, 'page': 0}
+                IDParser.get_client_method(entity_type),
+                **{param_name: normalized_id, 'page': 0, **organism_params(entity_type, organism)},
             )
 
         if not entities:
-            return [
-                TextContent(
-                    type='text',
-                    text=f"No {TYPE_LABELS.get(entity_type, entity_type)} found with {param_name}='{normalized_id}'",
-                )
-            ]
+            organisms = [DEFAULT_ORGANISM, MOUSE] if searched_mouse else [organism] if organism else None
+            return [TextContent(type='text', text=not_found(entity_type, param_name, normalized_id, organisms))]
 
         if entity_type == 'variant':
             entity = most_frequent_allele(entities) or entities[0]
@@ -310,6 +333,7 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
                 'uniprot_full_names': entity.get('uniprot_full_names'),
                 'uniprot_accession': uniprot_accession(entity),
                 'MANE_Select': entity.get('MANE_Select'),
+                'organism': entity.get('organism'),
                 'dbxrefs_count': len(dbxrefs),
             }
             identifiers['proteins'] = [
@@ -355,6 +379,10 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
                 'id': entity.get('_id'),
                 'name': entity.get('name'),
             }
+
+        if searched_mouse:
+            note = mouse_fallback_note(entity_type, normalized_id)
+            identifiers['note'] = f"{note} {identifiers['note']}" if 'note' in identifiers else note
 
         # Remove None values
         if 'identifiers' in identifiers:

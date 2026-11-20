@@ -3,11 +3,13 @@
 import pytest
 
 from igvf_catalog_mcp.services.id_parser import (
+    MAX_NAME_PAGES,
     ONTOLOGY_PREFIX_CASE,
     ONTOLOGY_PREFIXES,
     IDParser,
     name_matches,
     name_not_found,
+    not_found,
 )
 
 
@@ -111,6 +113,99 @@ def test_gene_symbols_are_not_uniprot_accessions(symbol):
 def test_detect_uniprot_accessions(accession):
     entity_type, _ = IDParser.detect_entity_type(accession)
     assert entity_type == 'protein'
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'expected'),
+    [
+        ('ENSMUSG00000000001', ('gene', 'gene_id')),
+        ('ENSMUSG00000000001.5', ('gene', 'gene_id')),
+        ('ENSMUST00000000001', ('transcript', 'transcript_id')),
+        ('ENSMUSP00000000001', ('protein', 'protein_id')),
+        ('ensmusp00000000001', ('protein', 'protein_id')),
+    ],
+)
+def test_detect_mouse_ensembl_ids(identifier, expected):
+    """Mouse Ensembl IDs are IDs, not gene symbols."""
+    assert IDParser.detect_entity_type(identifier) == expected
+
+
+def test_normalize_mouse_ensembl_gene_id():
+    assert IDParser.normalize_identifier('ensmusg00000000001.5', 'gene', 'gene_id') == 'ENSMUSG00000000001'
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'organism', 'expected'),
+    [
+        ('Q9DC51', None, None),
+        ('Q9DC51', 'Mus musculus', 'Mus musculus'),
+        ('BRCA1', 'Homo sapiens', 'Homo sapiens'),
+        ('ENSMUSG00000000001', None, 'Mus musculus'),
+        (' ensmust00000000001 ', 'Mus musculus', 'Mus musculus'),
+        ('ENSG00000139618', None, None),
+    ],
+)
+def test_lookup_organism(identifier, organism, expected):
+    assert IDParser.lookup_organism(identifier, organism) == expected
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'organism', 'message'),
+    [
+        ('ENSMUSP00000000001', 'Homo sapiens', "'ENSMUSP00000000001' is a Mus musculus Ensembl ID, not a Homo sapiens"),
+        ('Q9DC51', 'mouse', "Unknown organism: 'mouse'. Valid organisms: Homo sapiens, Mus musculus"),
+    ],
+)
+def test_lookup_organism_errors(identifier, organism, message):
+    with pytest.raises(ValueError, match=message):
+        IDParser.lookup_organism(identifier, organism)
+
+
+@pytest.mark.parametrize(
+    ('entity_type', 'organisms', 'expected'),
+    [
+        ('protein', None, "No protein found with dbxrefs='Q00000'"),
+        ('protein', ['Mus musculus'], "No protein found with dbxrefs='Q00000' in Mus musculus"),
+        ('protein', ['Homo sapiens', 'Mus musculus'],
+         "No protein found with dbxrefs='Q00000' in Homo sapiens or Mus musculus"),
+        ('drug', ['Mus musculus'], "No drug found with dbxrefs='Q00000'"),
+    ],
+)
+def test_not_found(entity_type, organisms, expected):
+    assert not_found(entity_type, 'dbxrefs', 'Q00000', organisms) == expected
+
+
+async def test_lookup_name_fetches_at_most_max_name_pages(fake_catalog):
+    full_page = [{'_id': f'ENSP{i}', 'name': f'KINASE{i}'} for i in range(50)]
+    fake_catalog.add('/proteins', full_page, params={'uniprot_full_name': 'kinase'})
+
+    matches, near_matches = await IDParser.lookup_name('protein', 'kinase')
+
+    assert matches == []
+    assert len(near_matches) == 50
+    assert [params['page'] for params in fake_catalog.params_for('/proteins') if 'uniprot_full_name' in params] == [
+        str(page) for page in range(MAX_NAME_PAGES)
+    ]
+
+
+async def test_lookup_name_with_fallback_retries_in_mouse(fake_catalog):
+    protein = {'_id': 'ENSMUSP00000000001', 'name': 'Gnai3', 'uniprot_names': ['GNAI3_MOUSE']}
+    fake_catalog.add('/proteins', [protein], params={'organism': 'Mus musculus'})
+
+    assert await IDParser.lookup_name_with_fallback('protein', 'GNAI3_MOUSE') == ([protein], [], True)
+    assert await IDParser.lookup_name_with_fallback('protein', 'GNAI3_MOUSE', 'Homo sapiens') == ([], [], False)
+
+
+async def test_lookup_name_with_fallback_only_retries_proteins(fake_catalog):
+    assert await IDParser.lookup_name_with_fallback('gene', 'GNAI3') == ([], [], False)
+    assert all('organism' not in params for params in fake_catalog.params_for('/genes'))
+
+
+def test_name_not_found_in_organisms():
+    assert name_not_found('protein', 'HBA', [], ['Homo sapiens', 'Mus musculus']) == (
+        "No protein found with name 'HBA' in Homo sapiens or Mus musculus"
+    )
+    assert name_not_found('drug', 'warfarine', [], ['Mus musculus']) == "No drug found with name 'warfarine'"
 
 
 def test_detect_transcript():
@@ -452,6 +547,18 @@ async def test_identify_gene_symbol_shaped_like_uniprot_accession(fake_catalog):
     assert identification[:3] == ('gene', 'name', 'P2RY12')
     assert identification.matches == [gene]
     assert fake_catalog.params_for('/genes') == [{'name': 'P2RY12', 'limit': '500', 'page': '0'}]
+
+
+async def test_identify_gene_symbol_in_organism(fake_catalog):
+    gene = {'_id': 'ENSMUSG00000000001', 'name': 'GNAI3'}
+    fake_catalog.add('/genes', [gene], params={'organism': 'Mus musculus'})
+
+    identification = await IDParser.identify('Gnai3', organism='Mus musculus')
+
+    assert identification.matches == [gene]
+    assert fake_catalog.params_for('/genes') == [
+        {'name': 'GNAI3', 'organism': 'Mus musculus', 'limit': '500', 'page': '0'}
+    ]
 
 
 async def test_identify_uniprot_accession_without_matching_gene(fake_catalog):

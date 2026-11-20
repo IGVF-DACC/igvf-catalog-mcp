@@ -268,6 +268,131 @@ async def test_get_entity_uniprot_accession_uses_dbxrefs(fake_catalog):
     assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'P49711', 'page': '0', 'limit': '25'}]
 
 
+GNAI3_MOUSE = {
+    '_id': 'ENSMUSP00000000001',
+    'name': 'Gnai3',
+    'uniprot_ids': ['Q9DC51'],
+    'uniprot_names': ['GNAI3_MOUSE'],
+    'dbxrefs': [{'name': 'AlphaFoldDB', 'id': 'Q9DC51'}],
+    'organism': 'Mus musculus',
+}
+
+
+async def test_get_entity_mouse_uniprot_accession(fake_catalog):
+    fake_catalog.add('/proteins', [GNAI3_MOUSE], params={'organism': 'Mus musculus'})
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'Q9DC51'}))
+
+    assert [entity['_id'] for entity in data['entities']] == ['ENSMUSP00000000001']
+    assert data['note'] == (
+        "No Homo sapiens protein matched 'Q9DC51', so it was looked up in Mus musculus. "
+        "Pass organism 'Mus musculus' to get further pages."
+    )
+    assert fake_catalog.params_for('/proteins') == [
+        {'dbxrefs': 'Q9DC51', 'page': '0', 'limit': '25'},
+        {'dbxrefs': 'Q9DC51', 'organism': 'Mus musculus', 'page': '0', 'limit': '25'},
+    ]
+
+
+async def test_get_entity_mouse_protein_name(fake_catalog):
+    fake_catalog.add('/proteins', [GNAI3_MOUSE], params={'organism': 'Mus musculus'})
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'GNAI3_MOUSE', 'hint': 'protein'}))
+
+    assert [entity['_id'] for entity in data['entities']] == ['ENSMUSP00000000001']
+    assert data['note'] == "No Homo sapiens protein matched 'GNAI3_MOUSE', so it was looked up in Mus musculus."
+    assert len(fake_catalog.params_for('/proteins')) == 6
+
+
+async def test_get_entity_protein_name_with_human_match_is_not_retried_in_mouse(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP00000358867', 'name': 'GNAI3'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'Gnai3', 'hint': 'protein'}))
+
+    assert data['entities'][0]['_id'] == 'ENSP00000358867'
+    assert 'note' not in data
+    assert all('organism' not in params for params in fake_catalog.params_for('/proteins'))
+
+
+async def test_get_entity_uniprot_accession_in_neither_organism(fake_catalog):
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'Q00000'})
+
+    assert result[0].text == "No protein found with dbxrefs='Q00000' in Homo sapiens or Mus musculus"
+    assert len(fake_catalog.params_for('/proteins')) == 2
+
+
+async def test_get_entity_with_organism_is_not_retried(fake_catalog):
+    fake_catalog.add('/proteins', [GNAI3_MOUSE], params={'organism': 'Mus musculus'})
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'Q9DC51', 'organism': 'Mus musculus'}))
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'Q9DC51', 'organism': 'Homo sapiens'})
+
+    assert data['entities'][0]['_id'] == 'ENSMUSP00000000001'
+    assert 'note' not in data
+    assert result[0].text == "No protein found with dbxrefs='Q9DC51' in Homo sapiens"
+    assert fake_catalog.params_for('/proteins') == [
+        {'dbxrefs': 'Q9DC51', 'organism': 'Mus musculus', 'page': '0', 'limit': '25'},
+        {'dbxrefs': 'Q9DC51', 'organism': 'Homo sapiens', 'page': '0', 'limit': '25'},
+    ]
+
+
+async def test_get_entity_later_page_is_not_retried_in_mouse(fake_catalog):
+    response_json(await call_tool('igvf_catalog_get_entity', {'id': 'Q9DC51', 'page': 1}))
+
+    assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'Q9DC51', 'page': '1', 'limit': '25'}]
+
+
+async def test_get_entity_human_match_is_not_retried_in_mouse(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP00000494538'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'P49711'}))
+
+    assert 'note' not in data
+    assert len(fake_catalog.params_for('/proteins')) == 1
+
+
+@pytest.mark.parametrize(
+    ('identifier', 'path', 'param_name'),
+    [
+        ('ENSMUSG00000000001.5', '/genes', 'gene_id'),
+        ('ENSMUST00000000001', '/transcripts', 'transcript_id'),
+        ('ENSMUSP00000000001', '/proteins', 'protein_id'),
+    ],
+)
+async def test_get_entity_mouse_ensembl_id(fake_catalog, identifier, path, param_name):
+    fake_catalog.add(path, [{'_id': 'ENSMUS1'}], params={'organism': 'Mus musculus'})
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': identifier}))
+
+    assert data['entities'][0]['_id'] == 'ENSMUS1'
+    assert fake_catalog.params_for(path)[0][param_name] == identifier.split('.')[0]
+    assert fake_catalog.params_for(path)[0]['organism'] == 'Mus musculus'
+
+
+async def test_get_entity_mouse_gene_symbol(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSMUSG00000000001', 'name': 'GNAI3'}], params={'organism': 'Mus musculus'})
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'Gnai3', 'organism': 'Mus musculus'}))
+
+    assert data['entities'][0]['_id'] == 'ENSMUSG00000000001'
+    assert fake_catalog.params_for('/genes') == [
+        {'name': 'GNAI3', 'organism': 'Mus musculus', 'limit': '500', 'page': '0'}
+    ]
+
+
+async def test_get_entity_organism_is_not_sent_for_other_types(fake_catalog):
+    await call_tool('igvf_catalog_get_entity', {'id': 'PA448497', 'organism': 'Mus musculus'})
+
+    assert fake_catalog.params_for('/drugs') == [{'drug_id': 'PA448497', 'page': '0', 'limit': '25'}]
+
+
+async def test_get_entity_organism_contradicting_mouse_id(fake_catalog):
+    with pytest.raises(ToolError, match='is a Mus musculus Ensembl ID, not a Homo sapiens one'):
+        await call_tool('igvf_catalog_get_entity', {'id': 'ENSMUSG00000000001', 'organism': 'Homo sapiens'})
+
+    assert fake_catalog.requests == []
+
+
 async def test_get_entity_uniprot_isoform_uses_protein_id(fake_catalog):
     await call_tool('igvf_catalog_get_entity', {'id': 'P49711-1'})
 
@@ -289,18 +414,78 @@ async def test_get_entity_hint_looks_up_protein_by_name(fake_catalog):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein'}))
 
+    assert [entity['_id'] for entity in data['entities']] == ['ENSP00000494538']
     assert data['entities'][0]['_type'] == 'protein'
-    assert fake_catalog.params_for('/proteins') == [{'name': 'CTCF', 'page': '0', 'limit': '25'}]
+    assert 'note' not in data
+    assert sorted(fake_catalog.params_for('/proteins'), key=str) == [
+        {'name': 'CTCF', 'limit': '50', 'page': '0'},
+        {'uniprot_full_name': 'CTCF', 'limit': '50', 'page': '0'},
+        {'uniprot_name': 'CTCF', 'limit': '50', 'page': '0'},
+    ]
     assert fake_catalog.params_for('/genes') == []
 
 
+@pytest.mark.parametrize(
+    ('name', 'param_name'),
+    [('HBA_HUMAN', 'uniprot_name'), ('hba_human', 'uniprot_name'), ('Hemoglobin subunit alpha', 'uniprot_full_name')],
+)
+async def test_get_entity_protein_by_uniprot_name(fake_catalog, name, param_name):
+    proteins = [
+        {'_id': f'ENSP{i}', 'name': f'HBA{i}', 'uniprot_names': ['HBA_HUMAN'],
+         'uniprot_full_names': ['Hemoglobin subunit alpha']}
+        for i in [1, 2]
+    ]
+    fake_catalog.add('/proteins', proteins, params={param_name: name})
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': name, 'hint': 'protein'}))
+
+    assert [entity['_id'] for entity in data['entities']] == ['ENSP1', 'ENSP2']
+    assert data['_pagination']['has_more'] is False
+
+
+async def test_get_entity_protein_name_keeps_only_exact_matches(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP1', 'name': 'HBZ', 'uniprot_names': ['HBAZ_HUMAN']}])
+
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'HBA', 'hint': 'protein', 'organism': 'Homo sapiens'})
+
+    assert result[0].text == "No protein found with name 'HBA' in Homo sapiens. Did you mean: HBZ (ENSP1)?"
+
+
+async def test_get_entity_protein_name_in_neither_organism(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP1', 'name': 'HBZ'}])
+    fake_catalog.add('/proteins', [{'_id': 'ENSMUSP1', 'name': 'Hbz'}], params={'organism': 'Mus musculus'})
+
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'HBA', 'hint': 'protein'})
+
+    assert result[0].text == (
+        "No protein found with name 'HBA' in Homo sapiens or Mus musculus. Did you mean: HBZ (ENSP1), Hbz (ENSMUSP1)?"
+    )
+    assert len(fake_catalog.params_for('/proteins')) == 6
+
+
+async def test_get_entity_pages_exact_protein_matches(fake_catalog):
+    proteins = [{'_id': f'ENSP{i}', 'name': 'CTCF'} for i in range(3)]
+    fake_catalog.add('/proteins', proteins, params={'name': 'CTCF'})
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'limit': 2}))
+    next_page = response_json(
+        await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'limit': 2, 'page': 1})
+    )
+
+    assert [entity['_id'] for entity in data['entities']] == ['ENSP0', 'ENSP1']
+    assert data['_pagination']['has_more'] is True
+    assert [entity['_id'] for entity in next_page['entities']] == ['ENSP2']
+    assert next_page['_pagination']['has_more'] is False
+
+
 async def test_get_entity_hint_looks_up_uniprot_entry_name_as_protein(fake_catalog):
-    fake_catalog.add('/proteins', [{'_id': 'ENSP00000322421', 'name': 'HBA1', 'uniprot_names': ['HBA_HUMAN']}])
+    protein = {'_id': 'ENSP00000322421', 'name': 'HBA1', 'uniprot_names': ['HBA_HUMAN']}
+    fake_catalog.add('/proteins', [protein], params={'uniprot_name': 'HBA_HUMAN'})
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'HBA_HUMAN', 'hint': 'protein'}))
 
     assert data['entities'][0]['_id'] == 'ENSP00000322421'
-    assert fake_catalog.params_for('/proteins') == [{'name': 'HBA_HUMAN', 'page': '0', 'limit': '25'}]
+    assert {'uniprot_name': 'HBA_HUMAN', 'limit': '50', 'page': '0'} in fake_catalog.params_for('/proteins')
     assert fake_catalog.params_for('/ontology-terms') == []
 
 
@@ -327,10 +512,12 @@ async def test_get_entity_paginates_name_lookups(fake_catalog):
 
 
 async def test_get_entity_reports_capped_limit(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP00000494538', 'name': 'CTCF'}])
+
     await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'limit': 200})
     result = await call_tool('igvf_catalog_get_entity', {'id': 'CPX-9', 'limit': 200})
 
-    assert fake_catalog.params_for('/proteins') == [{'name': 'CTCF', 'page': '0', 'limit': '50'}]
+    assert {'name': 'CTCF', 'page': '0', 'limit': '50'} in fake_catalog.params_for('/proteins')
     assert fake_catalog.params_for('/complexes') == [{'complex_id': 'CPX-9', 'page': '0'}]
     assert result[0].text == "No complex found with complex_id='CPX-9'"
 
@@ -909,6 +1096,167 @@ async def test_find_associations_drug_name_resolved_to_id(fake_catalog):
     assert data['resolved_entities'] == [{'id': 'PA451906', 'name': 'warfarin'}]
     assert fake_catalog.params_for('/drugs') == [{'name': 'Warfarin', 'limit': '100', 'page': '0'}]
     assert fake_catalog.params_for('/drugs/variants') == [{'drug_id': 'PA451906', 'page': '0', 'limit': '25'}]
+
+
+MOUSE_ORGANISM = {'organism': 'Mus musculus'}
+
+
+async def test_find_associations_mouse_uniprot_accession(fake_catalog):
+    fake_catalog.add('/proteins', [GNAI3_MOUSE], params=MOUSE_ORGANISM)
+    fake_catalog.add('/proteins/proteins', [{'protein_2': 'proteins/ENSMUSP2'}], params=MOUSE_ORGANISM)
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'Q9DC51', 'relationship': 'physical'})
+    )
+
+    assert data['organism'] == 'Mus musculus'
+    assert data['num_associations'] == 1
+    assert data['note'] == (
+        "No Homo sapiens protein matched 'Q9DC51', so it was looked up in Mus musculus. "
+        'Skipped endpoints without Mus musculus data: proteins_complexes.'
+    )
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert metadata['proteins_complexes'] == {
+        'endpoint': 'proteins_complexes',
+        'path': '/proteins/complexes',
+        'skipped': 'This endpoint has no Mus musculus data (Homo sapiens only).',
+    }
+    assert metadata['proteins_proteins']['params_used']['organism'] == 'Mus musculus'
+    assert fake_catalog.params_for('/proteins') == [
+        {'dbxrefs': 'Q9DC51', 'limit': '50', 'page': '0'},
+        {'dbxrefs': 'Q9DC51', 'organism': 'Mus musculus', 'limit': '50', 'page': '0'},
+    ]
+    assert fake_catalog.params_for('/proteins/proteins') == [
+        {'dbxrefs': 'Q9DC51', 'organism': 'Mus musculus', 'page': '0', 'limit': '25'}
+    ]
+    assert fake_catalog.params_for('/proteins/complexes') == []
+
+
+async def test_find_associations_human_uniprot_accession_has_no_organism(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP00000494538', 'uniprot_names': ['CTCF_HUMAN']}])
+
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'P49711', 'relationship': 'physical'})
+    )
+
+    assert 'organism' not in data
+    assert 'note' not in data
+    assert all('organism' not in params for _, params in fake_catalog.requests)
+
+
+async def test_find_associations_uniprot_accession_in_neither_organism(fake_catalog):
+    data = response_json(
+        await call_tool('igvf_catalog_find_associations', {'entity_id': 'Q00000', 'relationship': 'physical'})
+    )
+
+    assert 'organism' not in data
+    assert fake_catalog.params_for('/proteins/proteins') == [{'dbxrefs': 'Q00000', 'page': '0', 'limit': '25'}]
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert metadata['proteins_complexes']['note'] == (
+        "No protein found with dbxrefs='Q00000', so this endpoint was not queried."
+    )
+
+
+async def test_find_associations_mouse_protein_name(fake_catalog):
+    fake_catalog.add('/proteins', [GNAI3_MOUSE], params=MOUSE_ORGANISM)
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'GNAI3_MOUSE', 'hint': 'protein', 'relationship': 'transcription'},
+        )
+    )
+
+    assert data['organism'] == 'Mus musculus'
+    assert data['resolved_entities'] == [{'id': 'ENSMUSP00000000001', 'name': 'Gnai3'}]
+    assert data['note'] == "No Homo sapiens protein matched 'GNAI3_MOUSE', so it was looked up in Mus musculus."
+    assert fake_catalog.params_for('/proteins/transcripts') == [
+        {'protein_id': 'ENSMUSP00000000001', 'organism': 'Mus musculus', 'page': '0', 'limit': '25'}
+    ]
+
+
+async def test_find_associations_protein_name_in_neither_organism(fake_catalog):
+    result = await call_tool(
+        'igvf_catalog_find_associations', {'entity_id': 'NOPE_MOUSE', 'hint': 'protein', 'relationship': 'physical'}
+    )
+
+    assert result[0].text == "No protein found with name 'NOPE_MOUSE' in Homo sapiens or Mus musculus"
+
+
+async def test_find_associations_mouse_gene_symbol(fake_catalog):
+    fake_catalog.add('/genes', [{'_id': 'ENSMUSG00000000001', 'name': 'GNAI3'}], params=MOUSE_ORGANISM)
+
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'Gnai3', 'relationship': 'transcription', 'organism': 'Mus musculus'},
+        )
+    )
+
+    assert data['resolved_entities'] == [{'id': 'ENSMUSG00000000001', 'name': 'GNAI3'}]
+    assert 'note' not in data
+    assert fake_catalog.params_for('/genes') == [
+        {'name': 'GNAI3', 'organism': 'Mus musculus', 'limit': '500', 'page': '0'}
+    ]
+    assert fake_catalog.params_for('/genes/transcripts') == [
+        {'gene_id': 'ENSMUSG00000000001', 'organism': 'Mus musculus', 'page': '0', 'limit': '25'}
+    ]
+
+
+async def test_find_associations_mouse_ensembl_id_skips_human_only_endpoints(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'ENSMUSP00000000001', 'relationship': 'all'}
+        )
+    )
+
+    assert data['organism'] == 'Mus musculus'
+    metadata = {m['endpoint']: m for m in data['query_metadata']}
+    assert 'skipped' in metadata['proteins_complexes']
+    assert data['note'] == 'Skipped endpoints without Mus musculus data: proteins_complexes.'
+    # Endpoints without an organism parameter are queried by ID alone
+    assert fake_catalog.params_for('/gene-products/go-terms') == [
+        {'query': 'ENSMUSP00000000001', 'page': '0', 'limit': '25'}
+    ]
+    for path in ['/proteins/proteins', '/proteins/transcripts']:
+        assert fake_catalog.params_for(path) == [
+            {'protein_id': 'ENSMUSP00000000001', 'organism': 'Mus musculus', 'page': '0', 'limit': '25'}
+        ]
+
+
+async def test_find_associations_relationship_without_mouse_data(fake_catalog):
+    with pytest.raises(ToolError) as error:
+        await call_tool(
+            'igvf_catalog_find_associations', {'entity_id': 'ENSMUSG00000000001', 'relationship': 'genetic'}
+        )
+
+    assert str(error.value) == (
+        "No Mus musculus data for 'genetic' relationships of gene entities (genes_diseases only have Homo sapiens "
+        'data). Relationships with Mus musculus data for gene entities: regulatory, physical, transcription.'
+    )
+    assert fake_catalog.requests == []
+
+
+async def test_find_associations_human_organism_is_sent_where_accepted(fake_catalog):
+    data = response_json(
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'ENSP00000494538', 'relationship': 'all', 'organism': 'Homo sapiens'},
+        )
+    )
+
+    assert data['organism'] == 'Homo sapiens'
+    assert not any('skipped' in m for m in data['query_metadata'])
+    assert fake_catalog.params_for('/proteins/complexes')[0]['organism'] == 'Homo sapiens'
+    assert 'organism' not in fake_catalog.params_for('/gene-products/go-terms')[0]
+
+
+async def test_find_associations_organism_contradicting_mouse_id(fake_catalog):
+    with pytest.raises(ToolError, match='is a Mus musculus Ensembl ID, not a Homo sapiens one'):
+        await call_tool(
+            'igvf_catalog_find_associations',
+            {'entity_id': 'ENSMUSG00000000001', 'relationship': 'all', 'organism': 'Homo sapiens'},
+        )
 
 
 async def test_find_associations_protein_name_queries_each_protein(fake_catalog):
@@ -1917,6 +2265,48 @@ async def test_resolve_id_uniprot_accession(fake_catalog):
     assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'P49711', 'limit': '50', 'page': '0'}]
 
 
+async def test_resolve_id_mouse_uniprot_accession(fake_catalog):
+    fake_catalog.add('/proteins', [GNAI3_MOUSE], params={'organism': 'Mus musculus'})
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'Q9DC51'}))
+
+    assert data['identifiers']['protein_id'] == 'ENSMUSP00000000001'
+    assert data['identifiers']['uniprot_accession'] == 'Q9DC51'
+    assert data['identifiers']['organism'] == 'Mus musculus'
+    assert data['note'] == "No Homo sapiens protein matched 'Q9DC51', so it was looked up in Mus musculus."
+    assert fake_catalog.params_for('/proteins') == [
+        {'dbxrefs': 'Q9DC51', 'limit': '50', 'page': '0'},
+        {'dbxrefs': 'Q9DC51', 'organism': 'Mus musculus', 'limit': '50', 'page': '0'},
+    ]
+
+
+async def test_resolve_id_mouse_fallback_note_precedes_isoform_note(fake_catalog):
+    isoforms = [{**GNAI3_MOUSE, '_id': f'ENSMUSP{i}'} for i in range(2)]
+    fake_catalog.add('/proteins', isoforms, params={'organism': 'Mus musculus'})
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'Q9DC51'}))
+
+    assert data['note'].startswith("No Homo sapiens protein matched 'Q9DC51', so it was looked up in Mus musculus. ")
+    assert 'Q9DC51 matches 2 proteins' in data['note']
+
+
+async def test_resolve_id_uniprot_accession_in_neither_organism(fake_catalog):
+    result = await call_tool('igvf_catalog_resolve_id', {'id': 'Q00000'})
+
+    assert result[0].text == "No protein found with dbxrefs='Q00000' in Homo sapiens or Mus musculus"
+
+
+async def test_resolve_id_mouse_transcript_id(fake_catalog):
+    fake_catalog.add('/transcripts', [{'_id': 'ENSMUST00000000001'}], params={'organism': 'Mus musculus'})
+
+    data = response_json(await call_tool('igvf_catalog_resolve_id', {'id': 'ENSMUST00000000001'}))
+
+    assert data['identifiers']['transcript_id'] == 'ENSMUST00000000001'
+    assert fake_catalog.params_for('/transcripts') == [
+        {'transcript_id': 'ENSMUST00000000001', 'page': '0', 'organism': 'Mus musculus'}
+    ]
+
+
 async def test_resolve_id_protein_isoforms_prefer_mane_select(fake_catalog):
     dbxrefs = [{'name': 'PDB', 'id': f'{i}ABC'} for i in range(1000)]
     proteins = [
@@ -1984,6 +2374,17 @@ async def test_list_sources_endpoint(fake_catalog):
     assert data['path'] == '/variants/genes'
     assert data['supports_verbose'] is True
     assert 'neg_log10_pvalue' in data['filters']
+
+
+@pytest.mark.parametrize(
+    ('endpoint', 'organisms'),
+    [('proteins_proteins', ['Homo sapiens', 'Mus musculus']), ('proteins_complexes', ['Homo sapiens']),
+     ('go_terms_annotations', None)],
+)
+async def test_list_sources_lists_organisms(fake_catalog, endpoint, organisms):
+    data = response_json(await call_tool('igvf_catalog_list_sources', {'endpoint': endpoint}))
+
+    assert data.get('organisms') == organisms
 
 
 @pytest.mark.parametrize(

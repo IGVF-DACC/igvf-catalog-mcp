@@ -51,6 +51,8 @@ Universal entity lookup with automatic type detection.
 - `{"id": "rs80357906"}` - Variant by rsID
 - `{"id": "NC_000017.11:43044295:G:A"}` - Variant by SPDI
 - `{"id": "ENSP00000493376"}` - Protein by Ensembl ID
+- `{"id": "Q9DC51"}` - Mouse protein by UniProt accession (retried in mouse when no human protein matches)
+- `{"id": "Gnai3", "organism": "Mus musculus"}` - Mouse gene by symbol
 
 ### 2. search_region
 Find entities within a genomic region.

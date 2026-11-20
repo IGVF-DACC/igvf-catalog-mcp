@@ -123,7 +123,9 @@ class IGVFCatalogClient:
             return [result]
         return []
 
-    async def call_all(self, method_name: str, page_size: int, **kwargs: Any) -> list[dict[str, Any]]:
+    async def call_all(
+        self, method_name: str, page_size: int, max_pages: int | None = None, **kwargs: Any
+    ) -> list[dict[str, Any]]:
         """
         Call a paginated API method for every page and return all results.
 
@@ -131,10 +133,11 @@ class IGVFCatalogClient:
             method_name: AsyncIgvfCatalogApi method name
             page_size: Results per full page. Sent as the limit if the method accepts one, otherwise it must be
                 the API's default page size.
+            max_pages: Maximum number of pages to fetch, or None for all
             **kwargs: Query parameters other than page and limit
 
         Returns:
-            Results of all pages, fetched until a page has fewer than page_size results
+            Results of all pages, fetched until a page has fewer than page_size results or max_pages were fetched
         """
         if 'limit' in method_params(method_name):
             kwargs['limit'] = page_size
@@ -143,9 +146,9 @@ class IGVFCatalogClient:
         while True:
             rows = await self.call(method_name, **kwargs, page=page)
             results.extend(rows)
-            if len(rows) < page_size:
-                return results
             page += 1
+            if len(rows) < page_size or page == max_pages:
+                return results
 
 
 _client: IGVFCatalogClient | None = None

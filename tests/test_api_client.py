@@ -121,6 +121,16 @@ async def test_call_all_fetches_until_short_page():
     ]
 
 
+async def test_call_all_stops_after_max_pages():
+    client = IGVFCatalogClient(base_url='http://catalog.test')
+    client.call = AsyncMock(side_effect=lambda method_name, page, **kwargs: [{'i': 2 * page}, {'i': 2 * page + 1}])
+
+    results = await client.call_all('proteins', 2, max_pages=2, name='x')
+
+    assert results == [{'i': i} for i in range(4)]
+    assert [c.kwargs['page'] for c in client.call.call_args_list] == [0, 1]
+
+
 async def test_call_all_without_limit_parameter():
     client = IGVFCatalogClient(base_url='http://catalog.test')
     client.call = AsyncMock(return_value=[{'i': 0}])

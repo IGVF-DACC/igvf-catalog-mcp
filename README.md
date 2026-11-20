@@ -61,7 +61,16 @@ Look up any entity by ID with automatic type detection.
 {"id": "rs12345"}
 {"id": "ENSG00000141510"}
 {"id": "lupus", "hint": "disease", "limit": 50, "page": 1}
+{"id": "Gnai3", "organism": "Mus musculus"}
+{"id": "HBA_HUMAN", "hint": "protein"}
 ```
+
+Gene symbols and protein names (name, UniProt entry name or UniProt full name) match exactly, case-insensitively;
+other names given with a `hint` are searched and can match many entities.
+
+Genes, transcripts, proteins and variants are looked up in Homo sapiens unless `organism` is `"Mus musculus"`. Mouse
+Ensembl IDs (`ENSMUSG…`, `ENSMUST…`, `ENSMUSP…`) are always looked up in mouse, and a UniProt accession or protein
+name with no human match (e.g. `Q9DC51`) is retried in mouse, with a `note` saying so.
 
 ### 2. `igvf_catalog_search_region`
 Find all entities within a genomic region.
@@ -76,7 +85,13 @@ Discover relationships between entities.
 ```json
 {"entity_id": "TP53", "relationship": "regulatory"}
 {"entity_id": "lupus", "relationship": "genetic", "hint": "disease"}
+{"entity_id": "Q9DC51", "relationship": "physical"}
 ```
+
+`find_associations` takes the same optional `organism` as `get_entity`, with the same handling of mouse Ensembl IDs
+and the same mouse retry for UniProt accessions and protein names. Only physical (protein-protein, gene-gene),
+transcription and gene-genomic element regulatory relationships have Mus musculus data. For a mouse entity,
+human-only endpoints are skipped and listed in `query_metadata`, and the response has a top-level `organism`.
 
 ### 4. `igvf_catalog_find_ld`
 Find variants in linkage disequilibrium with a query variant.
@@ -90,7 +105,10 @@ Convert between identifier formats.
 
 ```json
 {"id": "rs80357906"}
+{"id": "Q9DC51"}
 ```
+
+`resolve_id` takes the same optional `organism` as `get_entity`.
 
 ### 6. `igvf_catalog_list_sources`
 Discover available data sources.

@@ -80,7 +80,7 @@ IDENTIFIER_GUIDE_CONTENT = """
 # Identifier Format Guide
 
 ## Genes
-- **Ensembl**: ENSG00000139618 (starts with ENSG)
+- **Ensembl**: ENSG00000139618 (starts with ENSG); mouse ENSMUSG00000000001 (starts with ENSMUSG)
 - **Gene Symbol**: BRCA1, TP53 (2-10 uppercase letters/numbers)
 - **HGNC**: HGNC:1100 (HGNC:digits)
 - **Entrez**: ENTREZ:672 or just 672
@@ -92,11 +92,16 @@ IDENTIFIER_GUIDE_CONTENT = """
 - **ClinGen**: CA12345 (starts with 'CA')
 
 ## Proteins
-- **Ensembl**: ENSP00000493376 (starts with ENSP)
-- **UniProt**: P49711, P49711-2 (6 alphanumeric + optional -isoform)
+- **Ensembl**: ENSP00000493376 (starts with ENSP); mouse ENSMUSP00000000001 (starts with ENSMUSP)
+- **UniProt**: P49711, P49711-2 (6 alphanumeric + optional -isoform); human or mouse (e.g. Q9DC51)
 
 ## Transcripts
-- **Ensembl**: ENST00000443707 (starts with ENST)
+- **Ensembl**: ENST00000443707 (starts with ENST); mouse ENSMUST00000000001 (starts with ENSMUST)
+
+## Organisms
+Genes, transcripts, proteins and variants are looked up in Homo sapiens unless `organism` is "Mus musculus".
+Mouse Ensembl IDs are always looked up in Mus musculus, and UniProt accessions and protein names that match no human
+protein are also looked up in Mus musculus.
 
 ## Ontology Terms
 - **Disease**: Orphanet_586, MONDO_0008199, DOID_0050741

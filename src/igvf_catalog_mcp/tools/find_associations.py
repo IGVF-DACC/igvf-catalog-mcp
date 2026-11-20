@@ -9,12 +9,21 @@ from mcp.types import TextContent, Tool
 
 from ..services.api_client import get_client, method_params
 from ..services.edge_config import (
+    EDGE_ENDPOINTS,
     RELATIONSHIP_TYPE_MAPPING,
     get_edge_config,
     get_endpoints_for_entity_and_relationship,
 )
 from ..services.formatter import ToolError, build_pagination_metadata, format_error
-from ..services.id_parser import IDParser, name_not_found
+from ..services.id_parser import (
+    DEFAULT_ORGANISM,
+    MOUSE,
+    ORGANISMS,
+    IDParser,
+    mouse_fallback,
+    mouse_fallback_note,
+    name_not_found,
+)
 from ..services.id_parser import entity_id as node_id
 
 # Operator string of a range filter: gt, gte, lt or lte, a colon and a number (e.g. "gt:0.7")
@@ -78,6 +87,17 @@ FIND_ASSOCIATIONS_TOOL = Tool(
                     "Also selects the type of IDs that fit several, e.g. 'P2RY12' with hint 'protein'."
                 ),
                 'enum': ['gene', 'variant', 'protein', 'transcript', 'disease', 'drug', 'complex'],
+            },
+            'organism': {
+                'type': 'string',
+                'description': (
+                    'Organism of entity_id (default: Homo sapiens). Mouse Ensembl IDs (ENSMUSG, ENSMUST, ENSMUSP) '
+                    'are Mus musculus entities, and without an organism a UniProt accession or protein name that '
+                    'matches no Homo sapiens protein is looked up in Mus musculus. Only physical (protein-protein, '
+                    'gene-gene), transcription and gene-genomic element regulatory relationships have Mus musculus '
+                    'data; for a Mus musculus entity, query_metadata lists the other endpoints as skipped.'
+                ),
+                'enum': ORGANISMS,
             },
             'relationship': {
                 'type': 'string',
@@ -235,6 +255,7 @@ def build_query_params(
     limit: int,
     verbose: bool,
     page: int = 0,
+    organism: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """
     Build query parameters for an edge endpoint based on its configuration.
@@ -250,6 +271,8 @@ def build_query_params(
         limit: Result limit
         verbose: Whether to request verbose output
         page: Page number (0-indexed)
+        organism: Organism of the entity, sent if the endpoint has an organism parameter; None for the API default
+            (Homo sapiens)
 
     Returns:
         Tuple of (query parameters, user filters not applied to this endpoint mapped to the reason)
@@ -265,6 +288,9 @@ def build_query_params(
     # Add verbose mode if supported
     if verbose and 'verbose' in accepted_params:
         params['verbose'] = 'true'
+
+    if organism and 'organisms' in edge_config:
+        params['organism'] = organism
 
     # Process filters based on endpoint configuration
     supported_filters = edge_config.get('filters', {})
@@ -316,12 +342,27 @@ def build_query_params(
     return params, not_applied
 
 
+def has_organism(endpoint_key: str, organism: str) -> bool:
+    """
+    Check whether an edge endpoint can be queried for an organism's entities.
+
+    Args:
+        endpoint_key: The edge endpoint key
+        organism: The organism
+
+    Returns:
+        Whether the endpoint's organism parameter accepts the organism; endpoints without one are queried by ID alone
+    """
+    return organism in EDGE_ENDPOINTS[endpoint_key].get('organisms', ORGANISMS)
+
+
 async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
     """
     Execute the find_associations tool.
 
     Args:
-        arguments: Tool arguments with entity_id, relationship, and optional filters
+        arguments: Tool arguments with entity_id, relationship, and optional hint, organism, filters, limit, verbose
+            and page
 
     Returns:
         List of TextContent with associations found
@@ -334,6 +375,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         verbose = arguments.get('verbose', False)
         page = arguments.get('page', 0)
         hint = arguments.get('hint')
+        organism = IDParser.lookup_organism(entity_id, arguments.get('organism'))
 
         if relationship not in RELATIONSHIP_TYPE_MAPPING and relationship != 'all':
             raise ToolError(
@@ -342,7 +384,9 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             )
 
         # Detect entity type and normalize the identifier
-        entity_type, param_name, normalized_id, nodes, near_matches = await IDParser.identify(entity_id, hint)
+        entity_type, param_name, normalized_id, nodes, near_matches = await IDParser.identify(
+            entity_id, hint, organism
+        )
 
         # Determine which endpoints to query
         if relationship == 'all':
@@ -362,14 +406,41 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             if not endpoint_keys:
                 raise ToolError(f"Relationship type '{relationship}' not applicable to {entity_type} entities.")
 
-        # Names are resolved to the IDs of the entities that match them exactly
+        # Names are resolved to the IDs of the entities that match them exactly. A UniProt accession or protein name
+        # that matches no Homo sapiens protein is looked up in Mus musculus, and then so are its associations.
         resolved_entities = None
+        searched_mouse = False
         if param_name == 'name':
             if nodes is None:
-                nodes, near_matches = await IDParser.lookup_name(entity_type, normalized_id)
+                nodes, near_matches, searched_mouse = await IDParser.lookup_name_with_fallback(
+                    entity_type, normalized_id, organism
+                )
             if not nodes:
-                return [TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches))]
+                organisms = [DEFAULT_ORGANISM, MOUSE] if searched_mouse else [organism] if organism else None
+                return [
+                    TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches, organisms))
+                ]
             resolved_entities = [{'id': node_id(node, entity_type), 'name': node.get('name')} for node in nodes]
+        elif mouse_fallback(entity_type, param_name, organism):
+            nodes = await IDParser.lookup_all(entity_type, param_name, normalized_id)
+            if not nodes:
+                nodes = await IDParser.lookup_all(entity_type, param_name, normalized_id, MOUSE)
+                searched_mouse = bool(nodes)
+        if searched_mouse:
+            organism = MOUSE
+
+        # Endpoints without data for the entity's organism are skipped
+        if organism is not None and not any(has_organism(key, organism) for key in endpoint_keys):
+            available = [
+                rel_type
+                for rel_type, entity_map in RELATIONSHIP_TYPE_MAPPING.items()
+                if any(has_organism(key, organism) for key in entity_map.get(entity_type, []))
+            ]
+            raise ToolError(
+                f"No {organism} data for {'any' if relationship == 'all' else repr(relationship)} relationships of "
+                f"{entity_type} entities ({', '.join(endpoint_keys)} only have {DEFAULT_ORGANISM} data). "
+                f"Relationships with {organism} data for {entity_type} entities: {', '.join(available) or 'none'}."
+            )
 
         # Query all applicable endpoints
         all_associations = []
@@ -382,6 +453,17 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
         for endpoint_key in endpoint_keys:
             edge_config = get_edge_config(endpoint_key)
             if not edge_config:
+                continue
+            if organism is not None and not has_organism(endpoint_key, organism):
+                query_metadata.append(
+                    {
+                        'endpoint': endpoint_key,
+                        'path': edge_config['path'],
+                        'skipped': (
+                            f"This endpoint has no {organism} data ({', '.join(edge_config['organisms'])} only)."
+                        ),
+                    }
+                )
                 continue
 
             # The IDParser gives us the node lookup parameter, but each endpoint may expect a different name
@@ -409,7 +491,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     field = resolution[1]
                     if resolved_ids is None:
                         if nodes is None:
-                            nodes = await IDParser.lookup_all(entity_type, param_name, normalized_id)
+                            nodes = await IDParser.lookup_all(entity_type, param_name, normalized_id, organism)
                         resolved_ids = []
                         for node in nodes:
                             value = node.get(field) or []
@@ -421,7 +503,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
                     lookup_ids = [normalized_id]
 
                 params, filters_not_applied = build_query_params(
-                    normalized_id, endpoint_param_name, edge_config, filters, limit, verbose, page
+                    normalized_id, endpoint_param_name, edge_config, filters, limit, verbose, page, organism
                 )
                 params_used = {k: v for k, v in params.items() if k not in ['page']}
                 if resolve:
@@ -511,6 +593,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             top_pagination['note'] = f'More results available. Call again with page={page + 1} to continue.'
 
         requested = [m for m in query_metadata if 'params_used' in m]
+        skipped_endpoints = [m['endpoint'] for m in query_metadata if 'skipped' in m]
         unused_filters = [
             name for name in filters if requested and all(name in m.get('filters_not_applied', {}) for m in requested)
         ]
@@ -519,6 +602,7 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             '_pagination': top_pagination,
             'entity_id': normalized_id,
             'entity_type': entity_type,
+            **({'organism': organism} if organism is not None else {}),
             **({'resolved_entities': resolved_entities} if resolved_entities is not None else {}),
             'relationship_type': relationship,
             'num_associations': len(all_associations),
@@ -526,6 +610,10 @@ async def find_associations(arguments: dict[str, Any]) -> list[TextContent]:
             'associations': all_associations,
         }
         notes = []
+        if searched_mouse:
+            notes.append(mouse_fallback_note(entity_type, normalized_id))
+        if skipped_endpoints:
+            notes.append(f"Skipped endpoints without {organism} data: {', '.join(skipped_endpoints)}.")
         if failed_endpoints:
             notes.append(
                 f"The query failed for {', '.join(failed_endpoints)} (see the error in query_metadata), "
