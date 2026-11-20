@@ -62,7 +62,11 @@ Look up any entity by ID with automatic type detection.
 {"id": "ENSG00000141510"}
 {"id": "lupus", "hint": "disease", "limit": 50, "page": 1}
 {"id": "Gnai3", "organism": "Mus musculus"}
+{"id": "HBA_HUMAN", "hint": "protein"}
 ```
+
+Gene symbols and protein names (name, UniProt entry name or UniProt full name) match exactly, case-insensitively;
+other names given with a `hint` are searched and can match many entities.
 
 Genes, transcripts, proteins and variants are looked up in Homo sapiens unless `organism` is `"Mus musculus"`. Mouse
 Ensembl IDs (`ENSMUSG…`, `ENSMUST…`, `ENSMUSP…`) are always looked up in mouse, and a UniProt accession or protein

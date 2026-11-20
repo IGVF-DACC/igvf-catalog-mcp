@@ -21,6 +21,11 @@ from ..services.id_parser import (
     organism_params,
 )
 
+# Entity types whose names (via hint) get_entity matches exactly, like gene symbols: each name field the API searches
+# (see NAME_LOOKUP_PARAMS) is looked up in full, so that e.g. a UniProt entry name (HBA_HUMAN) or full name finds its
+# proteins. Other names are passed to the API's fuzzy name search.
+EXACT_NAME_TYPES = ['protein']
+
 # Description of the organism argument of get_entity and resolve_id
 ORGANISM_DESCRIPTION = (
     'Organism of genes, transcripts, proteins and variants (default: Homo sapiens); other entity types ignore it. '
@@ -39,9 +44,10 @@ GET_ENTITY_TOOL = Tool(
         'diseases (Orphanet_586, MONDO_0008199), drugs (PA448497), '
         'complexes (CPX-9), and more. '
         'Returns detailed information about the entity. '
-        'Gene symbols match exactly (case-insensitive); other names (via hint) are searched and can match many '
-        'entities: check _pagination.has_more in the response and use the page parameter to retrieve additional '
-        'results.'
+        'Gene symbols and protein names (via hint: name, UniProt entry name such as HBA_HUMAN, or UniProt full name '
+        'such as Hemoglobin subunit alpha) match exactly (case-insensitive); other names (via hint) are searched and '
+        'can match many entities. Check _pagination.has_more in the response and use the page parameter to retrieve '
+        'additional results.'
     ),
     inputSchema={
         'type': 'object',
@@ -86,6 +92,22 @@ GET_ENTITY_TOOL = Tool(
 )
 
 
+def searched(organism: str | None, searched_mouse: bool) -> list[str] | None:
+    """
+    Get the organisms a lookup searched, to mention them when nothing matched.
+
+    Args:
+        organism: The organism given, if any
+        searched_mouse: Whether Mus musculus was searched after no match in Homo sapiens
+
+    Returns:
+        The organisms searched, or None for the API default alone
+    """
+    if searched_mouse:
+        return [DEFAULT_ORGANISM, MOUSE]
+    return [organism] if organism else None
+
+
 async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
     """
     Execute the get_entity tool.
@@ -110,10 +132,19 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
 
         fixed_page_size = False
         searched_mouse = False
+        if matches is None and param_name == 'name' and entity_type in EXACT_NAME_TYPES:
+            matches, near_matches, searched_mouse = await IDParser.lookup_name_with_fallback(
+                entity_type, normalized_id, organism
+            )
+
         if matches is not None:
-            # Gene symbols were looked up in full to keep only exact matches, so they are paged here
+            # Gene symbols and EXACT_NAME_TYPES names were looked up in full to keep only exact matches, so they are
+            # paged here
             if not matches:
-                return [TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches))]
+                organisms = searched(organism, searched_mouse)
+                return [
+                    TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches, organisms))
+                ]
             effective_limit = min(limit, ENTITY_MAX_LIMITS[entity_type])
             start = page * effective_limit
             entities = matches[start:start + effective_limit]
@@ -136,7 +167,7 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
 
         # Format response
         if not entities and page == 0:
-            organisms = [DEFAULT_ORGANISM, MOUSE] if searched_mouse else [organism] if organism else None
+            organisms = searched(organism, searched_mouse)
             return [TextContent(type='text', text=not_found(entity_type, param_name, normalized_id, organisms))]
 
         pagination = build_pagination_metadata(entities, page, effective_limit, has_more)
@@ -152,7 +183,8 @@ async def get_entity(arguments: dict[str, Any]) -> list[TextContent]:
             'entities': [add_entity_type(entity, entity_type) for entity in entities],
         }
         if searched_mouse:
-            response_data['note'] = mouse_fallback_note(entity_type, normalized_id, paged=True)
+            # Exact name matches are retried in Mus musculus on every page; other lookups only on the first
+            response_data['note'] = mouse_fallback_note(entity_type, normalized_id, paged=param_name != 'name')
         if fixed_page_size:
             response_data['note'] = (
                 f'{entity_type.capitalize()} lookups have a fixed page size of {API_PAGE_SIZE}, '

@@ -93,6 +93,11 @@ ID_FIELDS: dict[str, str] = {'ontology': 'term_id'}
 # Maximum number of near matches suggested when a name has no exact match
 MAX_SUGGESTIONS = 10
 
+# Maximum number of pages of candidates fetched per name field. The catalog's fuzzy searches can return thousands of
+# candidates (e.g. 5,000+ UniProt full names for 'kinase'), and they rank exact matches first, so later pages only
+# hold near matches.
+MAX_NAME_PAGES = 4
+
 # Maximum page size of each lookup method. The complexes and studies methods take no limit and return
 # API_PAGE_SIZE results per page.
 ENTITY_MAX_LIMITS: dict[str, int] = {
@@ -202,7 +207,12 @@ def name_matches(entity: dict[str, Any], entity_type: str, name: str) -> bool:
     return False
 
 
-def name_not_found(entity_type: str, name: str, near_matches: list[dict[str, Any]] | None = None) -> str:
+def name_not_found(
+    entity_type: str,
+    name: str,
+    near_matches: list[dict[str, Any]] | None = None,
+    organisms: list[str] | None = None,
+) -> str:
     """
     Describe a name without exact matches, suggesting the entities the name search returned instead.
 
@@ -210,12 +220,15 @@ def name_not_found(entity_type: str, name: str, near_matches: list[dict[str, Any
         entity_type: The type of entity
         name: The name looked up
         near_matches: Entities the name search returned that do not match exactly
+        organisms: The organisms searched, when given or retried, to mention them
 
     Returns:
         Message such as "No gene found with symbol 'LIVER'. Did you mean: LIVAR?"
     """
     label = TYPE_LABELS.get(entity_type, entity_type)
     message = f"No {label} found with {'symbol' if entity_type == 'gene' else 'name'} '{name}'"
+    if organisms and entity_type in ORGANISM_TYPES:
+        message += f" in {' or '.join(organisms)}"
     suggestions: list[str] = []
     for entity in near_matches or []:
         suggestion = entity.get('name')
@@ -477,12 +490,12 @@ class IDParser:
         cls, entity_type: EntityType, name: str, organism: str | None = None
     ) -> tuple[list[dict], list[dict]]:
         """
-        Look up entities by name across all pages, and split them into exact and near matches.
+        Look up entities by name, and split them into exact and near matches.
 
         The name is searched with each lookup parameter of NAME_LOOKUP_PARAMS (e.g. name and synonyms for
-        ontology terms) concurrently, and the candidates are merged by ID. The catalog's searches are fuzzy
-        (e.g. LIVER finds LIVAR); only entities whose name, or another name field (see NAME_FIELDS), equals the
-        name case-insensitively match exactly.
+        ontology terms) concurrently, up to MAX_NAME_PAGES pages each, and the candidates are merged by ID. The
+        catalog's searches are fuzzy (e.g. LIVER finds LIVAR); only entities whose name, or another name field (see
+        NAME_FIELDS), equals the name case-insensitively match exactly.
 
         Args:
             entity_type: The type of entity, which must have a name lookup (see NAME_PARAMS)
@@ -499,7 +512,7 @@ class IDParser:
             raise ValueError('The name is empty. Provide a name to look up.')
         results = await asyncio.gather(
             *(
-                cls.lookup_all(entity_type, param_name, name, organism)
+                cls.lookup_all(entity_type, param_name, name, organism, max_pages=MAX_NAME_PAGES)
                 for param_name in NAME_LOOKUP_PARAMS[entity_type]
             )
         )
@@ -515,8 +528,35 @@ class IDParser:
         return exact, near
 
     @classmethod
+    async def lookup_name_with_fallback(
+        cls, entity_type: EntityType, name: str, organism: str | None = None
+    ) -> tuple[list[dict], list[dict], bool]:
+        """
+        Look up entities by name like lookup_name, retrying in Mus musculus (see MOUSE_FALLBACK_LOOKUPS).
+
+        Args:
+            entity_type: The type of entity, which must have a name lookup (see NAME_PARAMS)
+            name: The normalized name
+            organism: The organism given, if any
+
+        Returns:
+            Tuple of (exact matches, other entities the searches returned, whether Mus musculus was searched after
+            no exact match in Homo sapiens)
+        """
+        matches, near_matches = await cls.lookup_name(entity_type, name, organism)
+        if matches or not mouse_fallback(entity_type, 'name', organism):
+            return matches, near_matches, False
+        mouse_matches, mouse_near_matches = await cls.lookup_name(entity_type, name, MOUSE)
+        return mouse_matches, near_matches + mouse_near_matches, True
+
+    @classmethod
     async def lookup_all(
-        cls, entity_type: EntityType, param_name: str, identifier: str, organism: str | None = None
+        cls,
+        entity_type: EntityType,
+        param_name: str,
+        identifier: str,
+        organism: str | None = None,
+        max_pages: int | None = None,
     ) -> list[dict]:
         """
         Look up every entity matching an identifier, across all pages.
@@ -526,13 +566,15 @@ class IDParser:
             param_name: The lookup parameter
             identifier: The normalized identifier
             organism: Organism to search, for ORGANISM_TYPES; None for the API default (Homo sapiens)
+            max_pages: Maximum number of pages to fetch, or None for all
 
         Returns:
-            All matching entities (e.g. every allele of an rsID)
+            All matching entities (e.g. every allele of an rsID), from at most max_pages pages
         """
         return await get_client().call_all(
             cls.get_client_method(entity_type),
             ENTITY_MAX_LIMITS.get(entity_type, API_PAGE_SIZE),
+            max_pages,
             **{param_name: identifier},
             **organism_params(entity_type, organism),
         )

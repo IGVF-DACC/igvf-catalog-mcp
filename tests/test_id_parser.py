@@ -3,6 +3,7 @@
 import pytest
 
 from igvf_catalog_mcp.services.id_parser import (
+    MAX_NAME_PAGES,
     ONTOLOGY_PREFIX_CASE,
     ONTOLOGY_PREFIXES,
     IDParser,
@@ -172,6 +173,39 @@ def test_lookup_organism_errors(identifier, organism, message):
 )
 def test_not_found(entity_type, organisms, expected):
     assert not_found(entity_type, 'dbxrefs', 'Q00000', organisms) == expected
+
+
+async def test_lookup_name_fetches_at_most_max_name_pages(fake_catalog):
+    full_page = [{'_id': f'ENSP{i}', 'name': f'KINASE{i}'} for i in range(50)]
+    fake_catalog.add('/proteins', full_page, params={'uniprot_full_name': 'kinase'})
+
+    matches, near_matches = await IDParser.lookup_name('protein', 'kinase')
+
+    assert matches == []
+    assert len(near_matches) == 50
+    assert [params['page'] for params in fake_catalog.params_for('/proteins') if 'uniprot_full_name' in params] == [
+        str(page) for page in range(MAX_NAME_PAGES)
+    ]
+
+
+async def test_lookup_name_with_fallback_retries_in_mouse(fake_catalog):
+    protein = {'_id': 'ENSMUSP00000000001', 'name': 'Gnai3', 'uniprot_names': ['GNAI3_MOUSE']}
+    fake_catalog.add('/proteins', [protein], params={'organism': 'Mus musculus'})
+
+    assert await IDParser.lookup_name_with_fallback('protein', 'GNAI3_MOUSE') == ([protein], [], True)
+    assert await IDParser.lookup_name_with_fallback('protein', 'GNAI3_MOUSE', 'Homo sapiens') == ([], [], False)
+
+
+async def test_lookup_name_with_fallback_only_retries_proteins(fake_catalog):
+    assert await IDParser.lookup_name_with_fallback('gene', 'GNAI3') == ([], [], False)
+    assert all('organism' not in params for params in fake_catalog.params_for('/genes'))
+
+
+def test_name_not_found_in_organisms():
+    assert name_not_found('protein', 'HBA', [], ['Homo sapiens', 'Mus musculus']) == (
+        "No protein found with name 'HBA' in Homo sapiens or Mus musculus"
+    )
+    assert name_not_found('drug', 'warfarine', [], ['Mus musculus']) == "No drug found with name 'warfarine'"
 
 
 def test_detect_transcript():

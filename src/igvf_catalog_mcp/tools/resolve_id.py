@@ -232,7 +232,10 @@ async def resolve_id(arguments: dict[str, Any]) -> list[TextContent]:
         # Query the API to get the full entity, and every allele of a variant or isoform of a protein
         if matches is not None:
             if not matches:
-                return [TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches))]
+                organisms = [organism] if organism else None
+                return [
+                    TextContent(type='text', text=name_not_found(entity_type, normalized_id, near_matches, organisms))
+                ]
             entities = matches
         elif entity_type in ['variant', 'protein']:
             entities = await IDParser.lookup_all(entity_type, param_name, normalized_id, organism)

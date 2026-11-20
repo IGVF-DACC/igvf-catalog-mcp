@@ -299,8 +299,19 @@ async def test_get_entity_mouse_protein_name(fake_catalog):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'GNAI3_MOUSE', 'hint': 'protein'}))
 
-    assert data['entities'][0]['_id'] == 'ENSMUSP00000000001'
-    assert 'looked up in Mus musculus' in data['note']
+    assert [entity['_id'] for entity in data['entities']] == ['ENSMUSP00000000001']
+    assert data['note'] == "No Homo sapiens protein matched 'GNAI3_MOUSE', so it was looked up in Mus musculus."
+    assert len(fake_catalog.params_for('/proteins')) == 6
+
+
+async def test_get_entity_protein_name_with_human_match_is_not_retried_in_mouse(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP00000358867', 'name': 'GNAI3'}])
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'Gnai3', 'hint': 'protein'}))
+
+    assert data['entities'][0]['_id'] == 'ENSP00000358867'
+    assert 'note' not in data
+    assert all('organism' not in params for params in fake_catalog.params_for('/proteins'))
 
 
 async def test_get_entity_uniprot_accession_in_neither_organism(fake_catalog):
@@ -326,9 +337,9 @@ async def test_get_entity_with_organism_is_not_retried(fake_catalog):
 
 
 async def test_get_entity_later_page_is_not_retried_in_mouse(fake_catalog):
-    response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'page': 1}))
+    response_json(await call_tool('igvf_catalog_get_entity', {'id': 'Q9DC51', 'page': 1}))
 
-    assert fake_catalog.params_for('/proteins') == [{'name': 'CTCF', 'page': '1', 'limit': '25'}]
+    assert fake_catalog.params_for('/proteins') == [{'dbxrefs': 'Q9DC51', 'page': '1', 'limit': '25'}]
 
 
 async def test_get_entity_human_match_is_not_retried_in_mouse(fake_catalog):
@@ -403,18 +414,78 @@ async def test_get_entity_hint_looks_up_protein_by_name(fake_catalog):
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein'}))
 
+    assert [entity['_id'] for entity in data['entities']] == ['ENSP00000494538']
     assert data['entities'][0]['_type'] == 'protein'
-    assert fake_catalog.params_for('/proteins') == [{'name': 'CTCF', 'page': '0', 'limit': '25'}]
+    assert 'note' not in data
+    assert sorted(fake_catalog.params_for('/proteins'), key=str) == [
+        {'name': 'CTCF', 'limit': '50', 'page': '0'},
+        {'uniprot_full_name': 'CTCF', 'limit': '50', 'page': '0'},
+        {'uniprot_name': 'CTCF', 'limit': '50', 'page': '0'},
+    ]
     assert fake_catalog.params_for('/genes') == []
 
 
+@pytest.mark.parametrize(
+    ('name', 'param_name'),
+    [('HBA_HUMAN', 'uniprot_name'), ('hba_human', 'uniprot_name'), ('Hemoglobin subunit alpha', 'uniprot_full_name')],
+)
+async def test_get_entity_protein_by_uniprot_name(fake_catalog, name, param_name):
+    proteins = [
+        {'_id': f'ENSP{i}', 'name': f'HBA{i}', 'uniprot_names': ['HBA_HUMAN'],
+         'uniprot_full_names': ['Hemoglobin subunit alpha']}
+        for i in [1, 2]
+    ]
+    fake_catalog.add('/proteins', proteins, params={param_name: name})
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': name, 'hint': 'protein'}))
+
+    assert [entity['_id'] for entity in data['entities']] == ['ENSP1', 'ENSP2']
+    assert data['_pagination']['has_more'] is False
+
+
+async def test_get_entity_protein_name_keeps_only_exact_matches(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP1', 'name': 'HBZ', 'uniprot_names': ['HBAZ_HUMAN']}])
+
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'HBA', 'hint': 'protein', 'organism': 'Homo sapiens'})
+
+    assert result[0].text == "No protein found with name 'HBA' in Homo sapiens. Did you mean: HBZ (ENSP1)?"
+
+
+async def test_get_entity_protein_name_in_neither_organism(fake_catalog):
+    fake_catalog.add('/proteins', [{'_id': 'ENSP1', 'name': 'HBZ'}])
+    fake_catalog.add('/proteins', [{'_id': 'ENSMUSP1', 'name': 'Hbz'}], params={'organism': 'Mus musculus'})
+
+    result = await call_tool('igvf_catalog_get_entity', {'id': 'HBA', 'hint': 'protein'})
+
+    assert result[0].text == (
+        "No protein found with name 'HBA' in Homo sapiens or Mus musculus. Did you mean: HBZ (ENSP1), Hbz (ENSMUSP1)?"
+    )
+    assert len(fake_catalog.params_for('/proteins')) == 6
+
+
+async def test_get_entity_pages_exact_protein_matches(fake_catalog):
+    proteins = [{'_id': f'ENSP{i}', 'name': 'CTCF'} for i in range(3)]
+    fake_catalog.add('/proteins', proteins, params={'name': 'CTCF'})
+
+    data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'limit': 2}))
+    next_page = response_json(
+        await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'limit': 2, 'page': 1})
+    )
+
+    assert [entity['_id'] for entity in data['entities']] == ['ENSP0', 'ENSP1']
+    assert data['_pagination']['has_more'] is True
+    assert [entity['_id'] for entity in next_page['entities']] == ['ENSP2']
+    assert next_page['_pagination']['has_more'] is False
+
+
 async def test_get_entity_hint_looks_up_uniprot_entry_name_as_protein(fake_catalog):
-    fake_catalog.add('/proteins', [{'_id': 'ENSP00000322421', 'name': 'HBA1', 'uniprot_names': ['HBA_HUMAN']}])
+    protein = {'_id': 'ENSP00000322421', 'name': 'HBA1', 'uniprot_names': ['HBA_HUMAN']}
+    fake_catalog.add('/proteins', [protein], params={'uniprot_name': 'HBA_HUMAN'})
 
     data = response_json(await call_tool('igvf_catalog_get_entity', {'id': 'HBA_HUMAN', 'hint': 'protein'}))
 
     assert data['entities'][0]['_id'] == 'ENSP00000322421'
-    assert fake_catalog.params_for('/proteins') == [{'name': 'HBA_HUMAN', 'page': '0', 'limit': '25'}]
+    assert {'uniprot_name': 'HBA_HUMAN', 'limit': '50', 'page': '0'} in fake_catalog.params_for('/proteins')
     assert fake_catalog.params_for('/ontology-terms') == []
 
 
@@ -446,7 +517,7 @@ async def test_get_entity_reports_capped_limit(fake_catalog):
     await call_tool('igvf_catalog_get_entity', {'id': 'CTCF', 'hint': 'protein', 'limit': 200})
     result = await call_tool('igvf_catalog_get_entity', {'id': 'CPX-9', 'limit': 200})
 
-    assert fake_catalog.params_for('/proteins') == [{'name': 'CTCF', 'page': '0', 'limit': '50'}]
+    assert {'name': 'CTCF', 'page': '0', 'limit': '50'} in fake_catalog.params_for('/proteins')
     assert fake_catalog.params_for('/complexes') == [{'complex_id': 'CPX-9', 'page': '0'}]
     assert result[0].text == "No complex found with complex_id='CPX-9'"
 
