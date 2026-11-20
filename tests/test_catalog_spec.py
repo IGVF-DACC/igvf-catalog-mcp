@@ -3,7 +3,6 @@
 import importlib
 
 import pytest
-from igvf_catalog_async_client import AsyncIgvfCatalogApi
 
 from igvf_catalog_mcp.services import catalog_spec
 from igvf_catalog_mcp.services.catalog_spec import (
@@ -16,15 +15,7 @@ from igvf_catalog_mcp.services.catalog_spec import (
     param_enum,
     param_schema,
 )
-
-
-def public_client_methods() -> list[str]:
-    return [
-        name
-        for name in dir(AsyncIgvfCatalogApi)
-        if not name.startswith('_') and not name.endswith(('_with_http_info', '_without_preload_content'))
-        and callable(getattr(AsyncIgvfCatalogApi, name))
-    ]
+from tests.test_contract import public_client_methods
 
 
 def test_spec_is_shipped_in_the_client():
