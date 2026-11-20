@@ -1,5 +1,6 @@
 """MCP resources for entity schemas."""
 
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 # Gene schema
@@ -13,12 +14,13 @@ GENE_SCHEMA = Resource(
 GENE_SCHEMA_CONTENT = """
 {
   "entity_type": "gene",
-  "description": "Protein-coding and non-coding genes from GENCODE",
+  "description": "Protein-coding and non-coding genes from GENCODE, as returned by igvf_catalog_get_entity",
   "fields": {
-    "_id": "Gene ID (Ensembl format: ENSG*)",
+    "_type": "Entity type added by this server ('gene')",
+    "_id": "Ensembl gene ID (ENSG* for human, ENSMUSG* for mouse)",
     "chr": "Chromosome (e.g., 'chr1', 'chrX')",
-    "start": "Start position (0-based, GRCh38/GRCm39)",
-    "end": "End position (0-based, half-open)",
+    "start": "Start position (0-based; GRCh38 for human, GRCm39 for mouse)",
+    "end": "End position (exclusive; 0-based, half-open)",
     "name": "Gene symbol (e.g., 'BRCA1', 'TP53')",
     "gene_type": "Type of gene (protein_coding, lncRNA, miRNA, etc.)",
     "strand": "Strand (+/-)",
@@ -28,9 +30,10 @@ GENE_SCHEMA_CONTENT = """
     "collections": "Gene collections (ACMG73, GREGoR, etc.)",
     "study_sets": "Associated study sets",
     "source": "Data source (GENCODE)",
-    "version": "GENCODE version",
-    "organism": "Homo sapiens or Mus musculus"
-  }
+    "version": "GENCODE version (e.g., 'v43')",
+    "source_url": "URL of the GENCODE file the gene was loaded from"
+  },
+  "notes": "Mouse genes have only _id, chr, start, end, gene_type, name, entrez, source, version and source_url."
 }
 """
 
@@ -45,24 +48,28 @@ VARIANT_SCHEMA = Resource(
 VARIANT_SCHEMA_CONTENT = """
 {
   "entity_type": "variant",
-  "description": "Genetic variants from FAVOR, dbSNP, and other sources",
+  "description": "Genetic variants (human variants from FAVOR), as returned by igvf_catalog_get_entity",
   "fields": {
-    "_id": "Internal variant ID (NC_*:pos:ref:alt format)",
-    "chr": "Chromosome (e.g., 'chr1')",
-    "pos": "Position (0-based, GRCh38)",
+    "_type": "Entity type added by this server ('variant')",
+    "_id": "Variant ID; for human variants the SPDI (NC_*:pos:ref:alt)",
+    "organism": "Homo sapiens or Mus musculus",
+    "chr": "Chromosome (e.g., 'chr7')",
+    "pos": "Position (0-based, GRCh38; same as the SPDI position)",
+    "rsid": "List of dbSNP rsIDs (e.g., ['rs3757387'])",
     "ref": "Reference allele",
     "alt": "Alternate allele",
-    "rsid": "dbSNP rsID (e.g., 'rs12345')",
-    "spdi": "SPDI format (NC_000001.11:12345:A:G)",
-    "hgvs": "HGVS format (NC_000001.11:g.12346A>G)",
-    "ca_id": "ClinGen Allele Registry ID (e.g., 'CA12345')",
+    "spdi": "SPDI format (e.g., 'NC_000007.14:128936031:T:C')",
+    "hgvs": "HGVS format (e.g., 'NC_000007.14:g.128936032T>C'; 1-based)",
+    "ca_id": "ClinGen Allele Registry ID (e.g., 'CA12520929'); may be null",
+    "qual": "Quality from the source VCF",
+    "files_filesets": "IGVF file the variant was loaded from, if any",
+    "source": "Data source (e.g., 'FAVOR')",
+    "source_url": "URL of the data source",
     "annotations": {
       "bravo_af": "Allele frequency in BRAVO",
-      "gnomad_af_*": "gnomAD allele frequencies by population",
-      "cadd_phred": "CADD phred score",
+      "gnomad_af_*": "gnomAD allele frequencies: total, raw, by sex, by population, by both (gnomad_af_nfe_female)",
       "GENCODE_category": "coding or noncoding"
-    },
-    "organism": "Homo sapiens or Mus musculus"
+    }
   },
   "coordinate_system": "0-based, half-open intervals"
 }
@@ -83,13 +90,14 @@ IDENTIFIER_GUIDE_CONTENT = """
 - **Ensembl**: ENSG00000139618 (starts with ENSG); mouse ENSMUSG00000000001 (starts with ENSMUSG)
 - **Gene Symbol**: BRCA1, TP53 (2-10 uppercase letters/numbers)
 - **HGNC**: HGNC:1100 (HGNC:digits)
-- **Entrez**: ENTREZ:672 or just 672
+- **Entrez**: ENTREZ:672 (the ENTREZ: prefix is required; a bare number is not recognized)
 
 ## Variants
-- **rsID**: rs12345 (starts with 'rs')
-- **SPDI**: NC_000001.11:12345:A:G (RefSeq:pos:ref:alt)
-- **HGVS**: NC_000001.11:g.12346A>G (RefSeq:g.pos ref>alt)
-- **ClinGen**: CA12345 (starts with 'CA')
+All four of these name the same variant:
+- **rsID**: rs3757387 (starts with 'rs'; one rsID can cover several alleles)
+- **SPDI**: NC_000007.14:128936031:T:C (RefSeq:pos:ref:alt, 0-based position)
+- **HGVS**: NC_000007.14:g.128936032T>C (RefSeq:g.pos ref>alt, 1-based position)
+- **ClinGen**: CA12520929 (starts with 'CA')
 
 ## Proteins
 - **Ensembl**: ENSP00000493376 (starts with ENSP); mouse ENSMUSP00000000001 (starts with ENSMUSP)
@@ -107,7 +115,7 @@ protein are also looked up in Mus musculus.
 - **Disease**: Orphanet_586, MONDO_0008199, DOID_0050741
 - **Cell Type**: CL_0000084
 - **Tissue**: UBERON_0002048
-- **Phenotype**: EFO_0000400, OBA_0000128
+- **Phenotype**: EFO_0004340, OBA_0000128
 - **Gene Ontology**: GO_0008150
 
 ## Other
@@ -136,51 +144,51 @@ EXAMPLE_QUERIES_CONTENT = """
 
 ## 1. Look up a gene by symbol
 ```json
-Tool: get_entity
+Tool: igvf_catalog_get_entity
 Input: {"id": "BRCA1"}
 Returns: Gene information including coordinates, HGNC ID, Ensembl ID
 ```
 
-## 2. Find variants in a region
+## 2. Find genes, variants and regulatory elements in a region
 ```json
-Tool: search_region
+Tool: igvf_catalog_search_region
 Input: {"region": "chr17:41000000-42000000"}
 Returns: Genes, variants, and regulatory elements in the region
 ```
 
-## 3. Find eQTLs for a gene
+## 3. Find what regulates a gene
 ```json
-Tool: find_associations
+Tool: igvf_catalog_find_associations
 Input: {"entity_id": "TP53", "relationship": "regulatory"}
-Returns: Variants that affect TP53 expression (eQTLs, sQTLs)
+Returns: Variants that affect TP53 expression or splicing (eQTLs, sQTLs) and regulatory elements linked to TP53
 ```
 
 ## 4. Convert variant ID formats
 ```json
-Tool: resolve_id
+Tool: igvf_catalog_resolve_id
 Input: {"id": "rs80357906"}
 Returns: SPDI, HGVS, ClinGen ID, and genomic coordinates
 ```
 
 ## 5. Find GWAS associations for a variant
 ```json
-Tool: find_associations
-Input: {"entity_id": "rs12345", "relationship": "genetic"}
-Returns: Phenotypes/diseases associated with the variant
+Tool: igvf_catalog_find_associations
+Input: {"entity_id": "rs3757387", "relationship": "genetic"}
+Returns: Phenotypes/diseases associated with the variant (OpenTargets GWAS, e.g. rheumatoid arthritis)
 ```
 
 ## 6. Discover available data sources
 ```json
-Tool: list_sources
+Tool: igvf_catalog_list_sources
 Input: {"category": "gene_expression"}
 Returns: AFGR, EBI eQTL Catalogue, IGVF details
 ```
 
 ## 7. Find protein-protein interactions
 ```json
-Tool: find_associations
-Input: {"entity_id": "ENSP00000493376", "relationship": "physical"}
-Returns: Interacting proteins from BioGRID
+Tool: igvf_catalog_find_associations
+Input: {"entity_id": "P04637", "relationship": "physical"}
+Returns: Interacting proteins (BioGRID, IntAct) and complexes containing TP53
 ```
 
 ## 8. Flexible region formats
@@ -190,23 +198,23 @@ All these work:
 - chr1:1,000,000-2,000,000
 - chrX:1M-2M
 - chr1:1.5M-2.5M
+
+## 9. Look up a protein by UniProt entry name
+```json
+Tool: igvf_catalog_get_entity
+Input: {"id": "HBA_HUMAN", "hint": "protein"}
+Returns: The proteins with that UniProt entry name (HBA1 and HBA2). Without the hint, a name is looked up as a
+gene symbol.
+```
+
+## 10. Query a mouse entity
+```json
+Tool: igvf_catalog_find_associations
+Input: {"entity_id": "Q9DC51", "relationship": "physical"}
+Returns: BioGRID interactions of mouse Gnai3. A UniProt accession that matches no human protein is looked up in
+Mus musculus; pass "organism": "Mus musculus" to look up gene symbols and names in mouse.
+```
 """
-
-
-async def get_resource_content(uri: str) -> str:
-    """Get the content for a resource URI."""
-    resource_map = {
-        'igvf://schemas/gene': GENE_SCHEMA_CONTENT,
-        'igvf://schemas/variant': VARIANT_SCHEMA_CONTENT,
-        'igvf://guide/identifiers': IDENTIFIER_GUIDE_CONTENT,
-        'igvf://examples/queries': EXAMPLE_QUERIES_CONTENT,
-    }
-
-    content = resource_map.get(uri)
-    if content is None:
-        raise ValueError(f'Unknown resource URI: {uri}')
-
-    return content.strip()
 
 
 # All resources
@@ -216,3 +224,24 @@ ALL_RESOURCES = [
     IDENTIFIER_GUIDE,
     EXAMPLE_QUERIES,
 ]
+
+_RESOURCE_CONTENT = {
+    str(GENE_SCHEMA.uri): GENE_SCHEMA_CONTENT,
+    str(VARIANT_SCHEMA.uri): VARIANT_SCHEMA_CONTENT,
+    str(IDENTIFIER_GUIDE.uri): IDENTIFIER_GUIDE_CONTENT,
+    str(EXAMPLE_QUERIES.uri): EXAMPLE_QUERIES_CONTENT,
+}
+_RESOURCES_BY_URI = {str(resource.uri): resource for resource in ALL_RESOURCES}
+
+
+async def get_resource_content(uri: object) -> ReadResourceContents:
+    """Get the content and MIME type for a resource URI.
+
+    The MCP SDK passes the URI as a pydantic ``AnyUrl``, so it is compared as a string.
+    """
+    key = str(uri)
+    resource = _RESOURCES_BY_URI.get(key)
+    if resource is None:
+        raise ValueError(f'Unknown resource URI: {key}')
+
+    return ReadResourceContents(content=_RESOURCE_CONTENT[key].strip(), mime_type=resource.mimeType)

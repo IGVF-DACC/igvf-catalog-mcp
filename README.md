@@ -117,6 +117,17 @@ Discover available data sources.
 {"category": "gene_expression"}
 ```
 
+## Resources
+
+The server also offers four MCP resources that clients can read for background:
+
+| URI | Content |
+|---|---|
+| `igvf://schemas/gene` | Fields of a gene returned by `igvf_catalog_get_entity` (JSON) |
+| `igvf://schemas/variant` | Fields of a variant returned by `igvf_catalog_get_entity` (JSON) |
+| `igvf://guide/identifiers` | Identifier formats the tools recognize, and the coordinate system |
+| `igvf://examples/queries` | Example tool calls with what they return |
+
 ## Skills
 
 Skills are pre-packaged Claude Code workflows that combine multiple tools into guided analyses. Invoke them directly with `/skill-name` in a Claude Code session (e.g., `/igvf-catalog-variant-report rs429358`). The agent can independently invoke the skills when they are relevant.
