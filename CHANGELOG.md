@@ -5,7 +5,11 @@
 ### Changed
 - **Python 3.11+**: support for Python 3.10 is dropped (end of life), in line with `igvf-catalog-async-client`, which now requires 3.11.
 
+### Added
+- **Mouse lookups in `get_entity` and `resolve_id`**: both tools take an optional `organism` (`Homo sapiens` or `Mus musculus`), sent to gene, transcript, protein and variant lookups, which the API otherwise scopes to Homo sapiens. Mouse Ensembl IDs (`ENSMUSG…`, `ENSMUST…`, `ENSMUSP…`) are recognized and always looked up in Mus musculus; previously they were taken for gene symbols. `resolve_id` reports a protein's `organism`.
+
 ### Fixed
+- **Mouse proteins by UniProt accession or name**: `get_entity` and `resolve_id` returned `No protein found with dbxrefs='Q9DC51'` for mouse UniProt accessions, because the API only searches Homo sapiens proteins unless told otherwise. Without an `organism`, a UniProt accession or protein name that matches no human protein is now retried in Mus musculus, and the response has a `note` saying so. When neither matches, the message names both organisms.
 - **Server version**: the server reported the version of the `mcp` SDK (e.g. 1.30.0) in its MCP `serverInfo`, because `Server` was created without a version. It now reports the package version from `src/igvf_catalog_mcp/__init__.py`.
 
 ## [1.3.0] - 2026-10-15

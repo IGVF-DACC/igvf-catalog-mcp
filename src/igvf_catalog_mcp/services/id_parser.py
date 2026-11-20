@@ -37,6 +37,22 @@ HINT_TYPES: dict[str, str] = {
     'disease': 'ontology',
 }
 
+# Organisms in the catalog. Lookups of ORGANISM_TYPES are scoped to one organism, Homo sapiens unless another is given.
+ORGANISMS = ['Homo sapiens', 'Mus musculus']
+DEFAULT_ORGANISM = 'Homo sapiens'
+MOUSE = 'Mus musculus'
+
+# Entity types with records of both organisms, whose lookup methods take an organism
+ORGANISM_TYPES = ['gene', 'transcript', 'protein', 'variant']
+
+# Lookups retried in Mus musculus when no organism is given and no Homo sapiens entity matches: a UniProt accession or
+# protein name identifies proteins of either organism, and the API only searches one. Protein IDs match proteins of
+# either organism without a retry.
+MOUSE_FALLBACK_LOOKUPS = [('protein', 'dbxrefs'), ('protein', 'name')]
+
+# Mouse Ensembl gene, transcript and protein IDs, which only match in Mus musculus
+MOUSE_ENSEMBL_ID = r'^ENSMUS[GTP]\d+'
+
 # Display name of entity types in messages
 TYPE_LABELS: dict[str, str] = {'ontology': 'ontology term'}
 
@@ -213,6 +229,71 @@ def name_not_found(entity_type: str, name: str, near_matches: list[dict[str, Any
     return message
 
 
+def organism_params(entity_type: str, organism: str | None) -> dict[str, str]:
+    """
+    Get the organism query parameter of an entity lookup.
+
+    Args:
+        entity_type: The type of entity
+        organism: The organism to look up, or None for the API default (Homo sapiens)
+
+    Returns:
+        {'organism': organism} for an organism and an entity type of ORGANISM_TYPES, otherwise {}
+    """
+    return {'organism': organism} if organism and entity_type in ORGANISM_TYPES else {}
+
+
+def mouse_fallback(entity_type: str, param_name: str, organism: str | None) -> bool:
+    """
+    Check whether a lookup that matched nothing is retried in Mus musculus (see MOUSE_FALLBACK_LOOKUPS).
+
+    Args:
+        entity_type: The type of entity
+        param_name: The lookup parameter
+        organism: The organism given for the lookup, if any
+
+    Returns:
+        Whether the lookup is retried in Mus musculus
+    """
+    return organism is None and (entity_type, param_name) in MOUSE_FALLBACK_LOOKUPS
+
+
+def mouse_fallback_note(entity_type: str, identifier: str, paged: bool = False) -> str:
+    """
+    Describe a lookup that matched in Mus musculus after matching nothing in Homo sapiens.
+
+    Args:
+        entity_type: The type of entity
+        identifier: The identifier looked up
+        paged: Whether the response is one page of the matches, to say how to get the others
+
+    Returns:
+        Note for the response
+    """
+    label = TYPE_LABELS.get(entity_type, entity_type)
+    note = f"No {DEFAULT_ORGANISM} {label} matched '{identifier}', so it was looked up in {MOUSE}."
+    return f"{note} Pass organism '{MOUSE}' to get further pages." if paged else note
+
+
+def not_found(entity_type: str, param_name: str, identifier: str, organisms: list[str] | None = None) -> str:
+    """
+    Describe an identifier that matched no entity.
+
+    Args:
+        entity_type: The type of entity
+        param_name: The lookup parameter
+        identifier: The normalized identifier
+        organisms: The organisms searched, when given or retried, to mention them
+
+    Returns:
+        Message such as "No protein found with dbxrefs='Q00000' in Homo sapiens or Mus musculus"
+    """
+    message = f"No {TYPE_LABELS.get(entity_type, entity_type)} found with {param_name}='{identifier}'"
+    if organisms and entity_type in ORGANISM_TYPES:
+        message += f" in {' or '.join(organisms)}"
+    return message
+
+
 def with_article(noun: str) -> str:
     """
     Prefix a noun with its indefinite article.
@@ -231,14 +312,18 @@ class IDParser:
 
     # Pattern definitions for entity type detection
     PATTERNS = [
-        # Genes, including the catalog's copies in the Y chromosome PAR (e.g. ENSG00000002586_PAR_Y)
+        # Genes, including the catalog's copies in the Y chromosome PAR (e.g. ENSG00000002586_PAR_Y). Mouse Ensembl IDs
+        # (ENSMUSG, ENSMUST, ENSMUSP) are looked up in Mus musculus (see IDParser.lookup_organism).
         (r'^ENSG\d+(\.\d+)?(_PAR_Y)?$', 'gene', 'gene_id'),
+        (r'^ENSMUSG\d+(\.\d+)?$', 'gene', 'gene_id'),
         (r'^HGNC:\d+$', 'gene', 'hgnc_id'),
         (r'^ENTREZ:\d+$', 'gene', 'entrez'),
         # Transcripts
         (r'^ENST\d+(\.\d+)?(_PAR_Y)?$', 'transcript', 'transcript_id'),
+        (r'^ENSMUST\d+(\.\d+)?$', 'transcript', 'transcript_id'),
         # Proteins
         (r'^ENSP\d+(\.\d+)?$', 'protein', 'protein_id'),
+        (r'^ENSMUSP\d+(\.\d+)?$', 'protein', 'protein_id'),
         # UniProt isoforms like P49711-2 are protein IDs; bare accessions are cross-references
         (rf'^{UNIPROT_ACCESSION}-\d+$', 'protein', 'protein_id'),
         (rf'^{UNIPROT_ACCESSION}$', 'protein', 'dbxrefs'),
@@ -314,12 +399,36 @@ class IDParser:
 
         raise ValueError(
             f'Could not detect entity type for identifier: {identifier}. '
-            f'Supported formats include: ENSG* (genes), rs* (variants), ENSP* (proteins), '
+            f'Supported formats include: ENSG*/ENSMUSG* (genes), rs* (variants), ENSP*/ENSMUSP* (proteins), '
             f'NC_* (variants), ontology terms such as MONDO_0007915 or HP_0033726, and gene symbols.'
         )
 
     @classmethod
-    async def identify(cls, identifier: str, hint: str | None = None) -> Identification:
+    def lookup_organism(cls, identifier: str, organism: str | None = None) -> str | None:
+        """
+        Get the organism to look an identifier up in.
+
+        Args:
+            identifier: The ID string
+            organism: The organism given, if any
+
+        Returns:
+            The given organism, Mus musculus for a mouse Ensembl ID (e.g. ENSMUSG00000000001), otherwise None for the
+            API default (Homo sapiens)
+
+        Raises:
+            ValueError: If the organism is not in the catalog, or is not Mus musculus for a mouse Ensembl ID
+        """
+        if organism is not None and organism not in ORGANISMS:
+            raise ValueError(f"Unknown organism: '{organism}'. Valid organisms: {', '.join(ORGANISMS)}")
+        if re.match(MOUSE_ENSEMBL_ID, identifier.strip(), re.IGNORECASE):
+            if organism not in [None, MOUSE]:
+                raise ValueError(f"'{identifier.strip()}' is a {MOUSE} Ensembl ID, not a {organism} one.")
+            return MOUSE
+        return organism
+
+    @classmethod
+    async def identify(cls, identifier: str, hint: str | None = None, organism: str | None = None) -> Identification:
         """
         Detect the entity type of an identifier and normalize it for API queries.
 
@@ -332,6 +441,7 @@ class IDParser:
         Args:
             identifier: The ID string to parse
             hint: Optional hint about the entity type
+            organism: Organism whose genes the symbol lookups search, or None for the API default (Homo sapiens)
 
         Returns:
             The Identification, with the exact and near matches of a gene symbol
@@ -344,7 +454,7 @@ class IDParser:
         except ValueError:
             if hint or not re.match(IRREGULAR_SYMBOL, identifier.strip(), re.IGNORECASE):
                 raise
-            matches, near_matches = await cls.lookup_name('gene', identifier.strip().upper())
+            matches, near_matches = await cls.lookup_name('gene', identifier.strip().upper(), organism)
             if not matches:
                 raise
             return Identification('gene', 'name', matches[0].get('name'), matches, near_matches)
@@ -354,7 +464,7 @@ class IDParser:
         ambiguous = hint is None and not is_symbol and re.match(ID_SHAPED_SYMBOL, identifier.strip(), re.IGNORECASE)
         if is_symbol or ambiguous:
             symbol = identifier.strip().upper()
-            matches, near_matches = await cls.lookup_name('gene', symbol)
+            matches, near_matches = await cls.lookup_name('gene', symbol, organism)
             if matches:
                 symbol = matches[0].get('name') or symbol
             if is_symbol or matches:
@@ -363,7 +473,9 @@ class IDParser:
         return Identification(entity_type, param_name, normalized_id)  # type: ignore
 
     @classmethod
-    async def lookup_name(cls, entity_type: EntityType, name: str) -> tuple[list[dict], list[dict]]:
+    async def lookup_name(
+        cls, entity_type: EntityType, name: str, organism: str | None = None
+    ) -> tuple[list[dict], list[dict]]:
         """
         Look up entities by name across all pages, and split them into exact and near matches.
 
@@ -375,6 +487,7 @@ class IDParser:
         Args:
             entity_type: The type of entity, which must have a name lookup (see NAME_PARAMS)
             name: The normalized name
+            organism: Organism to search, for ORGANISM_TYPES; None for the API default (Homo sapiens)
 
         Returns:
             Tuple of (exact matches, other entities the searches returned)
@@ -385,7 +498,10 @@ class IDParser:
         if not name.strip():
             raise ValueError('The name is empty. Provide a name to look up.')
         results = await asyncio.gather(
-            *(cls.lookup_all(entity_type, param_name, name) for param_name in NAME_LOOKUP_PARAMS[entity_type])
+            *(
+                cls.lookup_all(entity_type, param_name, name, organism)
+                for param_name in NAME_LOOKUP_PARAMS[entity_type]
+            )
         )
         entities: list[dict] = []
         seen_ids = set()
@@ -399,7 +515,9 @@ class IDParser:
         return exact, near
 
     @classmethod
-    async def lookup_all(cls, entity_type: EntityType, param_name: str, identifier: str) -> list[dict]:
+    async def lookup_all(
+        cls, entity_type: EntityType, param_name: str, identifier: str, organism: str | None = None
+    ) -> list[dict]:
         """
         Look up every entity matching an identifier, across all pages.
 
@@ -407,6 +525,7 @@ class IDParser:
             entity_type: The type of entity
             param_name: The lookup parameter
             identifier: The normalized identifier
+            organism: Organism to search, for ORGANISM_TYPES; None for the API default (Homo sapiens)
 
         Returns:
             All matching entities (e.g. every allele of an rsID)
@@ -415,6 +534,7 @@ class IDParser:
             cls.get_client_method(entity_type),
             ENTITY_MAX_LIMITS.get(entity_type, API_PAGE_SIZE),
             **{param_name: identifier},
+            **organism_params(entity_type, organism),
         )
 
     @classmethod

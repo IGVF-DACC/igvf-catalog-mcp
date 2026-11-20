@@ -17,8 +17,10 @@ from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS, RELATIONSHIP_T
 from igvf_catalog_mcp.services.id_parser import (
     ENTITY_MAX_LIMITS,
     ENTITY_METHODS,
+    MOUSE_FALLBACK_LOOKUPS,
     NAME_LOOKUP_PARAMS,
     NAME_PARAMS,
+    ORGANISM_TYPES,
     IDParser,
 )
 from igvf_catalog_mcp.tools.find_associations import (
@@ -92,6 +94,17 @@ def test_entity_lookup_params_match_client():
         method_name = IDParser.get_client_method(entity_type)
         assert param_name in method_params(method_name), f'{param_name} not accepted by {method_name}'
         assert 'page' in method_params(method_name)
+
+
+@pytest.mark.parametrize('entity_type', ORGANISM_TYPES)
+def test_organism_types_accept_organism(entity_type):
+    assert 'organism' in method_params(IDParser.get_client_method(entity_type))
+
+
+def test_mouse_fallback_lookups_take_organism():
+    for entity_type, param_name in MOUSE_FALLBACK_LOOKUPS:
+        assert entity_type in ORGANISM_TYPES
+        assert param_name in method_params(IDParser.get_client_method(entity_type))
 
 
 def test_name_lookup_params_match_client():

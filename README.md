@@ -61,7 +61,12 @@ Look up any entity by ID with automatic type detection.
 {"id": "rs12345"}
 {"id": "ENSG00000141510"}
 {"id": "lupus", "hint": "disease", "limit": 50, "page": 1}
+{"id": "Gnai3", "organism": "Mus musculus"}
 ```
+
+Genes, transcripts, proteins and variants are looked up in Homo sapiens unless `organism` is `"Mus musculus"`. Mouse
+Ensembl IDs (`ENSMUSG…`, `ENSMUST…`, `ENSMUSP…`) are always looked up in mouse, and a UniProt accession or protein
+name with no human match (e.g. `Q9DC51`) is retried in mouse, with a `note` saying so.
 
 ### 2. `igvf_catalog_search_region`
 Find all entities within a genomic region.
@@ -90,7 +95,10 @@ Convert between identifier formats.
 
 ```json
 {"id": "rs80357906"}
+{"id": "Q9DC51"}
 ```
+
+`resolve_id` takes the same optional `organism` as `get_entity`.
 
 ### 6. `igvf_catalog_list_sources`
 Discover available data sources.
