@@ -5,7 +5,13 @@ from typing import Any
 
 from mcp.types import TextContent, Tool
 
-from ..services.edge_config import EDGE_ENDPOINTS, get_edge_config, get_sources_by_category, supports_verbose
+from ..services.edge_config import (
+    EDGE_ENDPOINTS,
+    RELATIONSHIP_TYPE_MAPPING,
+    get_edge_config,
+    get_sources_by_category,
+    supports_verbose,
+)
 from ..services.formatter import ToolError, format_error
 
 # Tool definition
@@ -14,6 +20,8 @@ LIST_SOURCES_TOOL = Tool(
     description=(
         'Discover available data sources, methods, and filter options in the IGVF Catalog. '
         'Helps find valid values for source and method filters in other tools. '
+        'Without arguments it lists every edge endpoint (key, path, entity types, the find_associations '
+        'relationship types that query it); pass endpoint=<key> for its sources, methods, labels and filters. '
         'Categories: variant_annotations, gene_expression, regulatory, disease, drugs, '
         'interactions, studies, structure, linkage, motifs, pathways, ontology.'
     ),
@@ -85,6 +93,60 @@ SOURCE_DESCRIPTIONS = {
 }
 
 
+def endpoint_relationships(endpoint_key: str) -> list[str]:
+    """
+    Get the find_associations relationship types that query an edge endpoint.
+
+    Args:
+        endpoint_key: The edge endpoint key
+
+    Returns:
+        Relationship types whose RELATIONSHIP_TYPE_MAPPING lists the endpoint, in mapping order
+    """
+    return [
+        relationship
+        for relationship, entity_map in RELATIONSHIP_TYPE_MAPPING.items()
+        if any(endpoint_key in endpoint_keys for endpoint_keys in entity_map.values())
+    ]
+
+
+def endpoint_summary(endpoint_key: str) -> dict[str, Any]:
+    """
+    Summarize an edge endpoint for the overview, without its filter values.
+
+    Args:
+        endpoint_key: The edge endpoint key
+
+    Returns:
+        Key, path, entity types, relationship types and, where the endpoint has an organism parameter, organisms
+    """
+    config = EDGE_ENDPOINTS[endpoint_key]
+    summary = {
+        'key': endpoint_key,
+        'path': config['path'],
+        'from_type': config['from_type'],
+        'to_type': config['to_type'],
+        'relationships': endpoint_relationships(endpoint_key),
+    }
+    if 'organisms' in config:
+        summary['organisms'] = config['organisms']
+    return summary
+
+
+def category_endpoints(category: str) -> list[str]:
+    """
+    Get the edge endpoints with data from a category's sources.
+
+    Args:
+        category: Source category
+
+    Returns:
+        Keys of the endpoints whose sources include one of the category's sources
+    """
+    sources = set(get_sources_by_category().get(category, []))
+    return [key for key, config in EDGE_ENDPOINTS.items() if sources & set(config.get('sources', []))]
+
+
 def get_category_details(category: str) -> dict[str, Any]:
     """Get detailed information about sources in a category."""
     sources_by_category = get_sources_by_category()
@@ -103,6 +165,7 @@ def get_category_details(category: str) -> dict[str, Any]:
             }
             for source in sources
         ],
+        'endpoints': category_endpoints(category),
     }
 
 
@@ -187,6 +250,7 @@ async def list_sources(arguments: dict[str, Any]) -> list[TextContent]:
                 'categories': list(sources_by_category.keys()),
                 'total_sources': len(set(source for sources in sources_by_category.values() for source in sources)),
                 'total_endpoints': len(EDGE_ENDPOINTS),
+                'endpoints': [endpoint_summary(key) for key in EDGE_ENDPOINTS],
                 'sources_by_category': {
                     cat: [
                         {
@@ -198,7 +262,8 @@ async def list_sources(arguments: dict[str, Any]) -> list[TextContent]:
                     for cat, sources in sources_by_category.items()
                 },
                 'usage_hint': 'Use category parameter to get details for a specific category, '
-                'or endpoint parameter to get details for a specific edge endpoint.',
+                'or endpoint parameter (an endpoint key) to get the sources, methods, labels and filters of an '
+                'edge endpoint.',
             }
 
         response_text = json.dumps(response_data, indent=2)

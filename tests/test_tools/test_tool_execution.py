@@ -2375,6 +2375,41 @@ async def test_list_sources_overview(fake_catalog):
     assert fake_catalog.requests == []
 
 
+async def test_list_sources_overview_lists_every_endpoint(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_list_sources', {}))
+
+    keys = [endpoint['key'] for endpoint in data['endpoints']]
+    assert sorted(keys) == sorted(EDGE_ENDPOINTS)
+    assert len(keys) == len(set(keys)) == data['total_endpoints']
+    endpoints = {endpoint['key']: endpoint for endpoint in data['endpoints']}
+    assert endpoints['variants_genes'] == {
+        'key': 'variants_genes',
+        'path': '/variants/genes',
+        'from_type': 'variant',
+        'to_type': 'gene',
+        'relationships': ['regulatory'],
+        'organisms': ['Homo sapiens'],
+    }
+    assert endpoints['genes_genes']['relationships'] == ['physical']
+    # No organism parameter
+    assert 'organisms' not in endpoints['go_terms_annotations']
+    # Filter values stay in the endpoint details
+    assert not {'sources', 'methods', 'labels', 'filters'} & set(endpoints['proteins_proteins'])
+
+
+async def test_list_sources_category_lists_its_endpoints(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_list_sources', {'category': 'interactions'}))
+
+    assert {'genes_genes', 'proteins_proteins'} <= set(data['endpoints'])
+    assert 'BioGRID' in [source['name'] for source in data['sources']]
+
+
+async def test_list_sources_category_endpoints_share_a_source(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_list_sources', {'category': 'drugs'}))
+
+    assert data['endpoints'] == ['variants_drugs', 'drugs_variants']
+
+
 async def test_list_sources_endpoint(fake_catalog):
     data = response_json(await call_tool('igvf_catalog_list_sources', {'endpoint': 'variants_genes'}))
 
