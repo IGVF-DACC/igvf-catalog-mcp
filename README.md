@@ -111,10 +111,11 @@ Convert between identifier formats.
 `resolve_id` takes the same optional `organism` as `get_entity`.
 
 ### 6. `igvf_catalog_list_sources`
-Discover available data sources.
+Discover available data sources and edge endpoints. Without arguments it lists the source categories and every edge endpoint (key, path, entity types, the `find_associations` relationship types that query it, and organisms). A `category` adds the endpoints with data from its sources; an `endpoint` key gives that endpoint's valid `source`, `method` and `label` values, filters and maximum page size.
 
 ```json
 {"category": "gene_expression"}
+{"endpoint": "genes_genes"}
 ```
 
 ## Resources
@@ -162,7 +163,7 @@ ruff check
 pytest
 ```
 
-The tests run offline. `tests/test_contract.py` checks that every API method and parameter the server uses exists in the generated client, so it fails when the catalog API drops or renames something the server relies on.
+The tests run offline. `tests/test_contract.py` checks that every API method and parameter the server uses exists in the generated client, so it fails when the catalog API drops or renames something the server relies on. Its spec checks always run, against the OpenAPI spec that ships in the installed client (no setup needed): the endpoint configuration must agree with the spec, and every client method must either be used by the server or be listed in `UNUSED_CLIENT_METHODS` with a reason, so a new catalog endpoint fails the tests until someone decides about it.
 
 ## Architecture
 
@@ -171,13 +172,15 @@ The server consists of:
 - **Services**: API client, edge endpoint registry, ID parser, region parser
 - **Resources**: Entity schemas and examples
 
-API calls go through [`igvf-catalog-async-client`](https://github.com/IGVF-DACC/igvf-catalog-async-python-client), the async Python client generated from the IGVF Catalog OpenAPI spec. `services/edge_config.py` maps each relationship to a generated client method.
+API calls go through [`igvf-catalog-async-client`](https://github.com/IGVF-DACC/igvf-catalog-async-python-client), the async Python client generated from the IGVF Catalog OpenAPI spec. `services/edge_config.py` maps each relationship to a generated client method. The client package also ships the processed spec it was generated from; `services/catalog_spec.py` reads it, and the endpoint paths, maximum page sizes, organisms and valid `source`, `label` and `method` values come from it rather than being copied by hand.
 
 ## Versioning
 
-The MCP server's version always equals the IGVF Catalog version it targets: `igvf-catalog-mcp` X.Y.Z depends on `igvf-catalog-async-client==X.Y.Z`. When the catalog is released, the release job pins the new client version, sets the same version in `src/igvf_catalog_mcp/__init__.py`, and publishes to PyPI.
+The release segment `X.Y.Z` of the MCP server's version always equals the IGVF Catalog version it targets, and the server pins an exact `igvf-catalog-async-client` version of the same catalog release. When the catalog is released, the release job pins `igvf-catalog-async-client==X.Y.Z`, sets the same version in `src/igvf_catalog_mcp/__init__.py`, and publishes to PyPI.
 
 Fixes to the MCP server between catalog releases are published by hand as `X.Y.Z.postN` (for example `1.3.0.post1`): set the version in `src/igvf_catalog_mcp/__init__.py`, then either publish a GitHub release or run the "Publish to PyPI" workflow with `workflow_dispatch`.
+
+The pin may also be a client post-release `X.Y.Z.postN`, which repackages the same API (for example `igvf-catalog-async-client==1.3.0.post1`, the first client that ships the OpenAPI spec the server reads). The MCP server's `.postN` numbers are independent of the client's: MCP `1.3.0.post2` may pin client `1.3.0.post1`. Change the pin by hand; `==X.Y.Z` doesn't match `X.Y.Z.postN`.
 
 The `dev` branch tracks `igvf-catalog@dev`; its CI installs the async client from the client repo's `dev` branch.
 

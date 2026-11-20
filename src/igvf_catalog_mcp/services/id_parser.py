@@ -4,7 +4,8 @@ import asyncio
 import re
 from typing import Any, Literal, NamedTuple
 
-from .api_client import get_client
+from .api_client import get_client, method_params
+from .catalog_spec import SpecError, max_page_size
 
 EntityType = Literal[
     'gene',
@@ -98,17 +99,31 @@ MAX_SUGGESTIONS = 10
 # hold near matches.
 MAX_NAME_PAGES = 4
 
-# Maximum page size of each lookup method. The complexes and studies methods take no limit and return
-# API_PAGE_SIZE results per page.
-ENTITY_MAX_LIMITS: dict[str, int] = {
-    'gene': 500,
-    'transcript': 500,
-    'protein': 50,
-    'variant': 500,
-    'ontology': 1000,
-    'drug': 100,
-    'pathway': 500,
-}
+
+def lookup_max_limits() -> dict[str, int]:
+    """
+    Read the maximum page size of each lookup method that takes a limit from the catalog OpenAPI spec.
+
+    Returns:
+        Entity type -> maximum limit. Lookup methods without a limit parameter (complexes, studies) are left out;
+        they return API_PAGE_SIZE results per page.
+
+    Raises:
+        SpecError: If the spec states no maximum page size for a lookup method that takes a limit
+    """
+    limits: dict[str, int] = {}
+    for entity_type, method_name in ENTITY_METHODS.items():
+        if 'limit' not in method_params(method_name):
+            continue
+        max_limit = max_page_size(method_name)
+        if max_limit is None:
+            raise SpecError(f'The catalog OpenAPI spec states no maximum page size for {method_name}')
+        limits[entity_type] = max_limit
+    return limits
+
+
+# Maximum page size of each lookup method that takes a limit
+ENTITY_MAX_LIMITS: dict[str, int] = lookup_max_limits()
 
 # Default page size of the IGVF Catalog API
 API_PAGE_SIZE = 25

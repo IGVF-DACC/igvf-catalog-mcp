@@ -70,8 +70,14 @@ def test_sources_are_lists():
 def test_max_limits_are_reasonable():
     """Verify max_limit values are reasonable."""
     for endpoint_key, config in EDGE_ENDPOINTS.items():
-        max_limit = config.get('max_limit', 100)
+        max_limit = config['max_limit']
         assert 25 <= max_limit <= 1000, f'Endpoint {endpoint_key} has unreasonable max_limit: {max_limit}'
+
+
+def test_max_limits_come_from_the_spec_or_an_override():
+    # The spec states 25 for /genes/diseases; /proteins/complexes states none, so it keeps the override
+    assert EDGE_ENDPOINTS['genes_diseases']['max_limit'] == 25
+    assert EDGE_ENDPOINTS['proteins_complexes']['max_limit'] == 100
 
 
 def test_get_existing_endpoint():

@@ -386,6 +386,14 @@ async def test_get_entity_organism_is_not_sent_for_other_types(fake_catalog):
     assert fake_catalog.params_for('/drugs') == [{'drug_id': 'PA448497', 'page': '0', 'limit': '25'}]
 
 
+async def test_get_entity_drug_limit_is_capped_at_the_spec_maximum(fake_catalog):
+    # /drugs allows up to 1000 per page (from the spec); it was once capped at 100 by hand
+    await call_tool('igvf_catalog_get_entity', {'id': 'PA448497', 'limit': 1000})
+    await call_tool('igvf_catalog_get_entity', {'id': 'PA448497', 'limit': 5000})
+
+    assert [params['limit'] for params in fake_catalog.params_for('/drugs')] == ['1000', '1000']
+
+
 async def test_get_entity_organism_contradicting_mouse_id(fake_catalog):
     with pytest.raises(ToolError, match='is a Mus musculus Ensembl ID, not a Homo sapiens one'):
         await call_tool('igvf_catalog_get_entity', {'id': 'ENSMUSG00000000001', 'organism': 'Homo sapiens'})
@@ -1094,7 +1102,7 @@ async def test_find_associations_drug_name_resolved_to_id(fake_catalog):
     )
 
     assert data['resolved_entities'] == [{'id': 'PA451906', 'name': 'warfarin'}]
-    assert fake_catalog.params_for('/drugs') == [{'name': 'Warfarin', 'limit': '100', 'page': '0'}]
+    assert fake_catalog.params_for('/drugs') == [{'name': 'Warfarin', 'limit': '1000', 'page': '0'}]
     assert fake_catalog.params_for('/drugs/variants') == [{'drug_id': 'PA451906', 'page': '0', 'limit': '25'}]
 
 
@@ -2367,6 +2375,41 @@ async def test_list_sources_overview(fake_catalog):
     assert fake_catalog.requests == []
 
 
+async def test_list_sources_overview_lists_every_endpoint(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_list_sources', {}))
+
+    keys = [endpoint['key'] for endpoint in data['endpoints']]
+    assert sorted(keys) == sorted(EDGE_ENDPOINTS)
+    assert len(keys) == len(set(keys)) == data['total_endpoints']
+    endpoints = {endpoint['key']: endpoint for endpoint in data['endpoints']}
+    assert endpoints['variants_genes'] == {
+        'key': 'variants_genes',
+        'path': '/variants/genes',
+        'from_type': 'variant',
+        'to_type': 'gene',
+        'relationships': ['regulatory'],
+        'organisms': ['Homo sapiens'],
+    }
+    assert endpoints['genes_genes']['relationships'] == ['physical']
+    # No organism parameter
+    assert 'organisms' not in endpoints['go_terms_annotations']
+    # Filter values stay in the endpoint details
+    assert not {'sources', 'methods', 'labels', 'filters'} & set(endpoints['proteins_proteins'])
+
+
+async def test_list_sources_category_lists_its_endpoints(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_list_sources', {'category': 'interactions'}))
+
+    assert {'genes_genes', 'proteins_proteins'} <= set(data['endpoints'])
+    assert 'BioGRID' in [source['name'] for source in data['sources']]
+
+
+async def test_list_sources_category_endpoints_share_a_source(fake_catalog):
+    data = response_json(await call_tool('igvf_catalog_list_sources', {'category': 'drugs'}))
+
+    assert data['endpoints'] == ['variants_drugs', 'drugs_variants']
+
+
 async def test_list_sources_endpoint(fake_catalog):
     data = response_json(await call_tool('igvf_catalog_list_sources', {'endpoint': 'variants_genes'}))
 
@@ -2384,7 +2427,9 @@ async def test_list_sources_endpoint(fake_catalog):
 async def test_list_sources_lists_organisms(fake_catalog, endpoint, organisms):
     data = response_json(await call_tool('igvf_catalog_list_sources', {'endpoint': endpoint}))
 
-    assert data.get('organisms') == organisms
+    # The organisms are in spec order
+    assert ('organisms' in data) == (organisms is not None)
+    assert set(data.get('organisms', [])) == set(organisms or [])
 
 
 @pytest.mark.parametrize(
