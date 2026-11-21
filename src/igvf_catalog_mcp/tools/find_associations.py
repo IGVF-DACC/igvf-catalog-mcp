@@ -55,9 +55,21 @@ FIND_ASSOCIATIONS_TOOL = Tool(
     description=(
         'Find connections between entities in the knowledge graph. '
         'Discovers eQTLs, GWAS associations, protein interactions, pathways, and more. '
-        "Relationship types: 'regulatory' (eQTLs, enhancer-gene), 'genetic' (GWAS, disease-gene), "
-        "'physical' (protein-protein), 'functional' (pathways, GO terms), 'pharmacological' (drug-variant), "
-        "'ld' (linkage disequilibrium), 'coding' (coding variant effects), 'transcription' (gene-transcript-protein). "
+        'Relationship types, by starting entity: '
+        "'regulatory': gene or variant: eQTLs and splice QTLs (AFGR, EBI eQTL Catalogue, IGVF) and CRISPR screens "
+        'of variant effects on expression; gene: genomic elements regulating it (ENCODE-rE2G and scE2G '
+        'predictions, CRISPR screens, Perturb-seq; ENCODE, IGVF); variant: genomic elements whose chromatin '
+        'accessibility it affects (caQTLs; AFGR, ENCODE, IGVF). '
+        "'genetic': gene: diseases (GenCC, Orphanet, ClinGen); variant: phenotypes (OpenTargets GWAS; IGVF CRISPR "
+        'screens, SGE, cV2F) and diseases (ClinGen); disease/phenotype term: genes (GenCC, Orphanet) and variants. '
+        "'physical': protein: protein-protein interactions (BioGRID, IntAct) and complex membership (EBI Complex "
+        'Portal); complex: its proteins; gene: gene-gene co-expression (COXPRESdb) and genetic interactions '
+        "(BioGRID). A gene symbol is a gene; for protein interactions pass a protein ID or hint 'protein'. "
+        "'functional': gene: Reactome pathways; protein: GO term annotations. "
+        "'pharmacological': variant or drug: variant-drug associations (PharmGKB). "
+        "'ld': variant: variants in linkage disequilibrium (TopLD). "
+        "'coding': variant: its coding variants (protein changes) with predicted-effect scores (dbNSFP, IGVF). "
+        "'transcription': gene: transcripts; transcript: gene and protein; protein: transcripts (GENCODE). "
         'Returns detailed associations with p-values, effect sizes, and sources. '
         'The limit applies to each data source (endpoint) separately, so a relationship backed by several '
         'endpoints can return up to limit × endpoints associations; query_metadata lists the per-endpoint counts. '

@@ -8,6 +8,7 @@ from mcp import types
 from igvf_catalog_mcp.server import app, call_tool
 from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS, RELATIONSHIP_TYPE_MAPPING
 from igvf_catalog_mcp.services.formatter import ToolError
+from igvf_catalog_mcp.tools.find_associations import FIND_ASSOCIATIONS_TOOL
 
 BRCA1 = {'_id': 'ENSG00000012048', 'name': 'BRCA1'}
 BRCA1_REGULATORY = {'entity_id': 'ENSG00000012048', 'relationship': 'regulatory'}
@@ -858,6 +859,15 @@ async def test_search_region_clipped_with_partial_failure(fake_catalog, sample_g
 
 
 # find_associations
+
+
+def test_find_associations_description_names_the_data_of_each_relationship():
+    description = FIND_ASSOCIATIONS_TOOL.description
+    # Data that agents could not find from the old one-word summaries
+    for words in ['co-expression', 'genetic interactions', 'complex membership', 'genomic element', 'caQTL']:
+        assert words in description
+    for relationship in RELATIONSHIP_TYPE_MAPPING:
+        assert f"'{relationship}':" in description
 
 
 async def test_find_associations_variant_regulatory_filters(fake_catalog):
