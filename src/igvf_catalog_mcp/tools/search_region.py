@@ -36,7 +36,10 @@ SEARCH_REGION_TOOL = Tool(
                 'description': (
                     "Genomic region (e.g., 'chr1:1000000-2000000' or '1:1M-2M') on chr1-chr22, chrX, chrY or chrM "
                     'for Homo sapiens (GRCh38), or chr1-chr19, chrX, chrY or chrM for Mus musculus (GRCm39). '
-                    'Positions are 0-based and the end is exclusive. The start must be within the chromosome; '
+                    'Positions are 0-based and the end is exclusive. '
+                    'To get the entities at a 1-based position P (as in dbSNP, HGVS or genome browsers), '
+                    'query chrN:(P-1)-P; genes and regulatory elements overlapping the region are returned. '
+                    'The start must be within the chromosome; '
                     'an end beyond the end of the chromosome is clipped to it, with a note in the response'
                 ),
             },
