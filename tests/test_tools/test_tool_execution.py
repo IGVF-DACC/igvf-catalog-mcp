@@ -9,6 +9,7 @@ from igvf_catalog_mcp.server import app, call_tool
 from igvf_catalog_mcp.services.edge_config import EDGE_ENDPOINTS, RELATIONSHIP_TYPE_MAPPING
 from igvf_catalog_mcp.services.formatter import ToolError
 from igvf_catalog_mcp.tools.find_associations import FIND_ASSOCIATIONS_TOOL
+from igvf_catalog_mcp.tools.search_region import SEARCH_REGION_TOOL
 
 BRCA1 = {'_id': 'ENSG00000012048', 'name': 'BRCA1'}
 BRCA1_REGULATORY = {'entity_id': 'ENSG00000012048', 'relationship': 'regulatory'}
@@ -856,6 +857,13 @@ async def test_search_region_clipped_with_partial_failure(fake_catalog, sample_g
         'The query failed for variants (see the error in results), '
         'so _pagination.has_more covers only the other entity types.'
     )
+
+
+def test_search_region_description_explains_a_single_position():
+    description = SEARCH_REGION_TOOL.inputSchema['properties']['region']['description']
+    assert '0-based' in description
+    assert '1-based position P' in description
+    assert 'chrN:(P-1)-P' in description
 
 
 # find_associations

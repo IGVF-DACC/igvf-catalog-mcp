@@ -129,6 +129,8 @@ The IGVF Catalog uses **0-based, half-open** coordinates:
 - Start is inclusive (0-based)
 - End is exclusive
 - Example: chr1:100-200 includes positions 100-199
+- A 1-based position P (as in dbSNP, HGVS or genome browsers) is the region chrN:(P-1)-P, e.g. HGVS
+  g.128936032 above is chr7:128936031-128936032
 """
 
 # Example queries
